@@ -10,7 +10,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from auth import require_admin
-from config import BASE_DIR, UPLOADS_DIR
+from config import BASE_DIR, UPLOADS_DIR, MAX_UPLOAD_SIZE_BYTES
 from database import engine
 from models import Player
 from services import get_active_players, get_player_by_id, normalize_name, outstanding
@@ -175,16 +175,24 @@ async def player_photo_upload(request: Request, player_id: str, photo: UploadFil
             return RedirectResponse(url="/dashboard", status_code=302)
         old_path = player.photo_path_or_url
         if old_path:
-            old_full = UPLOADS_DIR / old_path
-            if old_full.is_file():
-                try:
-                    old_full.unlink()
-                except OSError:
-                    pass
+            # Prevent path traversal: only delete files under UPLOADS_DIR
+            old_full = (UPLOADS_DIR / old_path).resolve()
+            try:
+                old_full.relative_to(UPLOADS_DIR.resolve())
+            except (ValueError, TypeError):
+                pass  # path outside uploads dir, skip delete
+            else:
+                if old_full.is_file():
+                    try:
+                        old_full.unlink()
+                    except OSError:
+                        pass
         save_name = f"{player_id}.{ext}"
         rel_path = f"players/{save_name}"
         full_path = UPLOADS_DIR / rel_path
-        contents = await photo.read()
+        contents = await photo.read(MAX_UPLOAD_SIZE_BYTES + 1)
+        if len(contents) > MAX_UPLOAD_SIZE_BYTES:
+            return RedirectResponse(url=f"/players/{player_id}?error=file_too_large", status_code=302)
         full_path.write_bytes(contents)
         player.photo_path_or_url = rel_path
         session.add(player)

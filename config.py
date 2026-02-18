@@ -39,3 +39,6 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 
 # Balance tolerance
 BALANCE_EPSILON = 0.01
+
+# Max size per uploaded file (screenshots / player photos); ~10 MB, a bit above typical screenshot size
+MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024

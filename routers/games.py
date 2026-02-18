@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from fastapi import APIRouter
 
 from auth import require_admin
-from config import BASE_DIR, BALANCE_EPSILON, UPLOADS_DIR, OPENAI_API_KEY
+from config import BASE_DIR, BALANCE_EPSILON, UPLOADS_DIR, OPENAI_API_KEY, MAX_UPLOAD_SIZE_BYTES
 from database import engine
 from extract_game import extract_game
 from game_forms import parse_game_form
@@ -26,9 +26,14 @@ def _redirect_login():
 
 
 def _form_dict(request_form) -> dict:
-    if not hasattr(request_form, "keys"):
+    """Build a plain dict from form (works with Starlette FormData and dict-like)."""
+    if request_form is None:
         return {}
-    return {k: request_form.get(k) for k in request_form.keys()}
+    try:
+        keys = request_form.keys() if hasattr(request_form, "keys") else []
+        return {k: request_form.get(k) for k in keys}
+    except Exception:
+        return {}
 
 
 def _rows_for_template(rows: list) -> list:
@@ -80,12 +85,19 @@ async def _redirect_new_upload(request: Request):
 
 # ---- Add game: single step 1 (date + screenshots and/or notes) -> step 2 (review) ----
 @router.get("/new", response_class=HTMLResponse)
-async def new_game_page(request: Request, date: str = ""):
+async def new_game_page(request: Request, date: str = "", flash: str = ""):
     if not require_admin(request):
         return _redirect_login()
+    flash_message = flash.replace("+", " ") if flash else None
+    flash_type = "success" if flash_message and "saved" in flash_message.lower() else ("error" if flash_message else None)
     return templates.TemplateResponse(
         "game_new.html",
-        {"request": request, "prefill_date": date or ""},
+        {
+            "request": request,
+            "prefill_date": date or "",
+            "flash_message": flash_message,
+            "flash_type": flash_type,
+        },
     )
 
 
@@ -94,7 +106,18 @@ async def new_game_post(request: Request):
     if not require_admin(request):
         return _redirect_login()
     import uuid
-    form = await request.form()
+    try:
+        form = await request.form()
+    except Exception:
+        return templates.TemplateResponse(
+            "game_new.html",
+            {
+                "request": request,
+                "prefill_date": "",
+                "flash_message": "Invalid form data. Please try again.",
+                "flash_type": "error",
+            },
+        )
     played_at_str = (form.get("played_at") or "").strip()
     notes = (form.get("notes") or "").strip()
     played_at = None
@@ -106,7 +129,7 @@ async def new_game_post(request: Request):
         except ValueError:
             pass
 
-    # Collect uploaded image files (multiple)
+    # Collect uploaded image files (multiple); tolerate write failures
     files = form.getlist("files") if hasattr(form, "getlist") else []
     if not files and "files" in form:
         f = form.get("files")
@@ -114,6 +137,7 @@ async def new_game_post(request: Request):
             files = [f]
     saved_paths = []
     source_image_path_or_url = None
+    upload_size_error = False
     for file in files:
         if not hasattr(file, "filename") or not file.filename:
             continue
@@ -122,8 +146,16 @@ async def new_game_post(request: Request):
             ext = "png"
         name = f"{uuid.uuid4().hex}.{ext}"
         path = UPLOADS_DIR / name
-        with open(path, "wb") as f:
-            f.write(await file.read())
+        try:
+            body = await file.read(MAX_UPLOAD_SIZE_BYTES + 1)
+            if len(body) > MAX_UPLOAD_SIZE_BYTES:
+                upload_size_error = True
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(body)
+        except Exception:
+            continue
         saved_paths.append(path)
         if source_image_path_or_url is None:
             source_image_path_or_url = f"/uploads/{name}"
@@ -131,23 +163,37 @@ async def new_game_post(request: Request):
     # Extract from notes and/or images via LLM
     rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
     if OPENAI_API_KEY and (notes or saved_paths):
-        extracted = extract_game(notes=notes or None, image_paths=saved_paths or None)
-        if extracted:
-            rows = [
-                {
-                    "player_id": "",
-                    "raw_name": r.get("raw_name", "") or "",
-                    "buyin": r.get("buyin", "") or "",
-                    "cashout": r.get("cashout", "") or "",
-                    "final_stack": r.get("final_stack", "") or "",
-                    "net_change": r.get("net_change", "") or "",
-                    "errors": [],
-                }
-                for r in extracted
-            ]
+        try:
+            extracted = extract_game(notes=notes or None, image_paths=saved_paths or None)
+            if extracted:
+                rows = [
+                    {
+                        "player_id": "",
+                        "raw_name": r.get("raw_name", "") or "",
+                        "buyin": r.get("buyin", "") or "",
+                        "cashout": r.get("cashout", "") or "",
+                        "final_stack": r.get("final_stack", "") or "",
+                        "net_change": r.get("net_change", "") or "",
+                        "errors": [],
+                    }
+                    for r in extracted
+                ]
+        except Exception:
+            pass
 
-    with Session(engine) as session:
-        players = get_active_players(session)
+    try:
+        with Session(engine) as session:
+            players = get_active_players(session)
+    except Exception:
+        return templates.TemplateResponse(
+            "game_new.html",
+            {
+                "request": request,
+                "prefill_date": played_at_str or "",
+                "flash_message": "Database error. Please try again.",
+                "flash_type": "error",
+            },
+        )
 
     def _row_net(r):
         v = r.get("net_change") or ""
@@ -160,25 +206,39 @@ async def new_game_post(request: Request):
     sum_net = sum((_row_net(r) for r in rows), Decimal(0))
     balanced = abs(sum_net) <= BALANCE_EPSILON
     extracted_any = bool(rows and (rows[0].get("raw_name") or rows[0].get("net_change")))
-    return templates.TemplateResponse(
-        "game_review.html",
-        {
-            "request": request,
-            "played_at": played_at,
-            "played_at_iso": played_at.strftime("%Y-%m-%d") if played_at else "",
-            "source_image_path_or_url": source_image_path_or_url or "",
-            "game_id": None,
-            "rows": rows,
-            "players": players,
-            "sum_net": sum_net,
-            "balanced": balanced,
-            "delta": sum_net,
-            "errors": [],
-            "force_save": False,
-            "force_reason": "",
-            "extracted_from_screenshot": extracted_any,
-        },
-    )
+    errors_list = []
+    if upload_size_error:
+        errors_list.append("Some files were too large (max 10 MB per file) and were skipped.")
+    try:
+        return templates.TemplateResponse(
+            "game_review.html",
+            {
+                "request": request,
+                "played_at": played_at,
+                "played_at_iso": played_at.strftime("%Y-%m-%d") if played_at else "",
+                "source_image_path_or_url": source_image_path_or_url or "",
+                "game_id": None,
+                "rows": rows,
+                "players": players,
+                "sum_net": sum_net,
+                "balanced": balanced,
+                "delta": sum_net,
+                "errors": errors_list,
+                "force_save": False,
+                "force_reason": "",
+                "extracted_from_screenshot": extracted_any,
+            },
+        )
+    except Exception:
+        return templates.TemplateResponse(
+            "game_new.html",
+            {
+                "request": request,
+                "prefill_date": played_at_str or "",
+                "flash_message": "Something went wrong. Please try again.",
+                "flash_type": "error",
+            },
+        )
 
 
 # ---- Review: POST with full grid -> validate; re-render or show confirm ----
@@ -186,8 +246,11 @@ async def new_game_post(request: Request):
 async def review_post(request: Request):
     if not require_admin(request):
         return _redirect_login()
-    form = await request.form()
-    data = parse_game_form(_form_dict(form))
+    try:
+        form = await request.form()
+        data = parse_game_form(_form_dict(form))
+    except Exception:
+        return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
     with Session(engine) as session:
         players = get_active_players(session)
     if data["errors"]:
@@ -229,8 +292,11 @@ async def review_post(request: Request):
 async def save_post(request: Request, add_another: str = ""):
     if not require_admin(request):
         return _redirect_login()
-    form = await request.form()
-    data = parse_game_form(_form_dict(form))
+    try:
+        form = await request.form()
+        data = parse_game_form(_form_dict(form))
+    except Exception:
+        return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
     if data["errors"]:
         with Session(engine) as session:
             players = get_active_players(session)
