@@ -5,6 +5,10 @@
 {% if has_settlements and edit_mode %}
 <p class="badge badge-warning">Settlements exist. Editing will change outstanding balances; settlements are not auto-adjusted.</p>
 {% endif %}
+{% if extracted_from_screenshot | default(false) %}
+<p class="badge badge-info">Data below was extracted from your screenshot or notes. Please confirm and map each row to a player.</p>
+{% endif %}
+<p class="muted" style="margin-bottom:0.5rem;">Map each row to a player, or <a href="/players/new" target="_blank" rel="noopener">add a new player</a> then click <strong>Refresh player list</strong> below.</p>
 {% if errors %}
 <ul class="error">
   {% for e in errors %}
@@ -39,11 +43,12 @@
         <tr class="row-template" style="display:none;">
           <td><input type="text" name="rows[__INDEX__][raw_name]" value="" placeholder="Name from screenshot"></td>
           <td>
-            <select name="rows[__INDEX__][player_id]" class="player-select" required>
+            <select name="rows[__INDEX__][player_id]" class="player-select" required data-player-options>
               <option value="">— Select player —</option>
               {% for p in players %}
               <option value="{{ p.id }}">{{ p.name }}</option>
               {% endfor %}
+              <option value="__new__">➕ Add new player</option>
             </select>
           </td>
           <td><input type="number" step="0.01" name="rows[__INDEX__][buyin]" value="" class="num"></td>
@@ -58,11 +63,12 @@
             <input type="text" name="rows[{{ loop.index0 }}][raw_name]" value="{{ r.raw_name }}" placeholder="Name from screenshot">
           </td>
           <td>
-            <select name="rows[{{ loop.index0 }}][player_id]" class="player-select" required>
+            <select name="rows[{{ loop.index0 }}][player_id]" class="player-select" required data-player-options>
               <option value="">— Select player —</option>
               {% for p in players %}
               <option value="{{ p.id }}" {% if r.player_id == p.id %}selected{% endif %}>{{ p.name }}</option>
               {% endfor %}
+              <option value="__new__">➕ Add new player</option>
             </select>
           </td>
           <td><input type="number" step="0.01" name="rows[{{ loop.index0 }}][buyin]" value="{{ r.buyin }}" class="num"></td>
@@ -78,7 +84,10 @@
       </tbody>
     </table>
   </div>
-  <p><button type="button" id="add-row" class="btn btn-secondary btn-small">Add row</button></p>
+  <p>
+    <button type="button" id="add-row" class="btn btn-secondary btn-small">Add row</button>
+    <button type="button" id="refresh-players" class="btn btn-secondary btn-small">Refresh player list</button>
+  </p>
 
   <div class="balance-status {{ 'ok' if balanced else 'fail' }}">
     {% if balanced %}Balanced ✅ (sum = $0.00){% else %}Discrepancy: {{ "${:,.2f}".format(delta) }}{% endif %}

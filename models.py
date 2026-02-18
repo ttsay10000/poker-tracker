@@ -19,6 +19,11 @@ class Player(SQLModel, table=True):
     name_normalized: str = Field(max_length=255, unique=True, index=True)
     is_active: bool = Field(default=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # Profile / analytics add-on
+    venmo_handle: Optional[str] = Field(default=None, max_length=255)
+    zelle_handle: Optional[str] = Field(default=None, max_length=255)
+    photo_path_or_url: Optional[str] = Field(default=None, max_length=512)
+    notes: Optional[str] = Field(default=None)
 
     game_entries: list["GameEntry"] = Relationship(back_populates="player")
     settlements: list["Settlement"] = Relationship(back_populates="player")

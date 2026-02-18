@@ -4,8 +4,7 @@
 <h1>Dashboard</h1>
 
 <div class="dashboard-actions">
-  <a href="/games/new/manual" class="btn btn-primary">Add Past Game (manual)</a>
-  <a href="/games/new/upload" class="btn btn-secondary">Upload New Game (screenshot)</a>
+  <a href="/games/new" class="btn btn-primary">Add game</a>
   <a href="/games" class="btn btn-secondary">View Games</a>
   <a href="/players/new" class="btn btn-secondary">New player</a>
 </div>
@@ -57,6 +56,7 @@
         {% endif %}
       </td>
       <td>
+        <a href="/players/{{ r.player.id }}" class="btn btn-small btn-primary">Profile</a>
         <a href="/players/{{ r.player.id }}/edit" class="btn btn-small btn-secondary">Edit</a>
         <a href="/settlements/record?player_id={{ r.player.id }}" class="btn btn-small btn-primary">Record payment</a>
         {% if r.player.is_active %}

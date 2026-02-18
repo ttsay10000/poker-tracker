@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}Stats Hub — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Stats hub</h1>
+<p class="muted">Leaderboard and quick links to player profiles. Use filters and sort to explore.</p>
+
+<form method="get" action="/stats" class="filters">
+  <label>From <input type="date" name="date_from" value="{{ filter_date_from }}"></label>
+  <label>To <input type="date" name="date_to" value="{{ filter_date_to }}"></label>
+  <label><input type="checkbox" name="include_inactive" value="1" {% if filter_include_inactive %}checked{% endif %}> Include inactive</label>
+  <label>Min games <input type="number" name="min_games" value="{{ filter_min_games }}" min="1" style="width:4rem;"></label>
+  <label>Sort by
+    <select name="sort_by">
+      <option value="total_net" {% if sort_by == 'total_net' %}selected{% endif %}>Total net (desc)</option>
+      <option value="win_rate" {% if sort_by == 'win_rate' %}selected{% endif %}>Win rate</option>
+      <option value="avg_net" {% if sort_by == 'avg_net' %}selected{% endif %}>Avg net/game</option>
+      <option value="games_played" {% if sort_by == 'games_played' %}selected{% endif %}>Games played</option>
+    </select>
+  </label>
+  <button type="submit" class="btn btn-secondary btn-small">Apply</button>
+</form>
+
+{% if not rows %}
+<p class="muted">No players match the filters (min {{ filter_min_games }} game(s)).</p>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th>Player</th>
+      <th>Total net</th>
+      <th>Games</th>
+      <th>Win rate</th>
+      <th>Avg net/game</th>
+      <th>Avg buy-in</th>
+      <th>Outstanding</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>
+        <a href="/players/{{ r.player.id }}">{{ r.player.name }}</a>
+        {% if not r.player.is_active %}<span class="badge badge-warning">inactive</span>{% endif %}
+      </td>
+      <td class="{% if r.total_net > 0 %}positive{% elif r.total_net < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.total_net) }}</td>
+      <td>{{ r.games_played }}</td>
+      <td>{% if r.win_rate is not none %}{{ "%.1f" % (r.win_rate * 100) }}%{% else %}—{% endif %}</td>
+      <td>{% if r.avg_net_per_game is not none %}{{ "${:,.2f}".format(r.avg_net_per_game) }}{% else %}—{% endif %}</td>
+      <td>{% if r.avg_buyin is not none %}{{ "${:,.2f}".format(r.avg_buyin) }}{% else %}—{% endif %}</td>
+      <td>{{ "${:,.2f}".format(r.outstanding) }}</td>
+      <td>
+        <a href="/players/{{ r.player.id }}" class="btn btn-small btn-primary">Profile</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<div class="stats-actions">
+  <a href="/dashboard" class="btn btn-secondary">Dashboard</a>
+  <a href="/games" class="btn btn-secondary">Games</a>
+</div>
+{% endblock %}

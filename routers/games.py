@@ -10,8 +10,9 @@ from sqlmodel import Session, select
 from fastapi import APIRouter
 
 from auth import require_admin
-from config import BASE_DIR, BALANCE_EPSILON, UPLOADS_DIR
+from config import BASE_DIR, BALANCE_EPSILON, UPLOADS_DIR, OPENAI_API_KEY
 from database import engine
+from extract_game import extract_game
 from game_forms import parse_game_form
 from models import Game, GameEntry
 from services import get_active_players, has_any_settlements, settlements_affect_players
@@ -62,21 +63,40 @@ async def game_list(request: Request):
     return templates.TemplateResponse("game_list.html", {"request": request, "game_list_data": game_list_data})
 
 
-# ---- Upload (screenshot): GET form, POST -> store file, render review ----
+# ---- Legacy redirects (single "Add game" flow now) ----
+@router.get("/new/manual", response_class=HTMLResponse)
+async def _redirect_new_manual(request: Request, date: str = ""):
+    if not require_admin(request):
+        return _redirect_login()
+    return RedirectResponse(url=f"/games/new?date={date}" if date else "/games/new", status_code=302)
+
+
 @router.get("/new/upload", response_class=HTMLResponse)
-async def new_upload_page(request: Request):
+async def _redirect_new_upload(request: Request):
     if not require_admin(request):
         return _redirect_login()
-    return templates.TemplateResponse("game_new_upload.html", {"request": request})
+    return RedirectResponse(url="/games/new", status_code=302)
 
 
-@router.post("/new/upload", response_class=HTMLResponse)
-async def new_upload_post(request: Request):
+# ---- Add game: single step 1 (date + screenshots and/or notes) -> step 2 (review) ----
+@router.get("/new", response_class=HTMLResponse)
+async def new_game_page(request: Request, date: str = ""):
     if not require_admin(request):
         return _redirect_login()
+    return templates.TemplateResponse(
+        "game_new.html",
+        {"request": request, "prefill_date": date or ""},
+    )
+
+
+@router.post("/new", response_class=HTMLResponse)
+async def new_game_post(request: Request):
+    if not require_admin(request):
+        return _redirect_login()
+    import uuid
     form = await request.form()
     played_at_str = (form.get("played_at") or "").strip()
-    file = form.get("file")
+    notes = (form.get("notes") or "").strip()
     played_at = None
     if played_at_str:
         try:
@@ -85,9 +105,18 @@ async def new_upload_post(request: Request):
             played_at = datetime.combine(d, datetime.min.time())
         except ValueError:
             pass
+
+    # Collect uploaded image files (multiple)
+    files = form.getlist("files") if hasattr(form, "getlist") else []
+    if not files and "files" in form:
+        f = form.get("files")
+        if f and hasattr(f, "filename") and f.filename:
+            files = [f]
+    saved_paths = []
     source_image_path_or_url = None
-    if file and hasattr(file, "filename") and file.filename:
-        import uuid
+    for file in files:
+        if not hasattr(file, "filename") or not file.filename:
+            continue
         ext = (file.filename or "").split(".")[-1] or "png"
         if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
             ext = "png"
@@ -95,73 +124,59 @@ async def new_upload_post(request: Request):
         path = UPLOADS_DIR / name
         with open(path, "wb") as f:
             f.write(await file.read())
-        source_image_path_or_url = f"/uploads/{name}"
+        saved_paths.append(path)
+        if source_image_path_or_url is None:
+            source_image_path_or_url = f"/uploads/{name}"
+
+    # Extract from notes and/or images via LLM
+    rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+    if OPENAI_API_KEY and (notes or saved_paths):
+        extracted = extract_game(notes=notes or None, image_paths=saved_paths or None)
+        if extracted:
+            rows = [
+                {
+                    "player_id": "",
+                    "raw_name": r.get("raw_name", "") or "",
+                    "buyin": r.get("buyin", "") or "",
+                    "cashout": r.get("cashout", "") or "",
+                    "final_stack": r.get("final_stack", "") or "",
+                    "net_change": r.get("net_change", "") or "",
+                    "errors": [],
+                }
+                for r in extracted
+            ]
+
     with Session(engine) as session:
         players = get_active_players(session)
-    return templates.TemplateResponse(
-        "game_review.html",
-        {
-            "request": request,
-            "played_at": played_at,
-            "played_at_iso": played_at.strftime("%Y-%m-%d") if played_at else "",
-            "source_image_path_or_url": source_image_path_or_url,
-            "game_id": None,
-            "rows": [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}],
-            "players": players,
-            "sum_net": Decimal(0),
-            "balanced": True,
-            "delta": Decimal(0),
-            "errors": [],
-            "force_save": False,
-            "force_reason": "",
-        },
-    )
 
-
-# ---- Manual new: GET form, POST -> review with empty grid ----
-@router.get("/new/manual", response_class=HTMLResponse)
-async def new_manual_page(request: Request, date: str = ""):
-    if not require_admin(request):
-        return _redirect_login()
-    return templates.TemplateResponse(
-        "game_new_manual.html",
-        {"request": request, "prefill_date": date or ""},
-    )
-
-
-@router.post("/new/manual", response_class=HTMLResponse)
-async def new_manual_post(request: Request):
-    if not require_admin(request):
-        return _redirect_login()
-    form = await request.form()
-    played_at_str = form.get("played_at", "").strip()
-    played_at = None
-    if played_at_str:
+    def _row_net(r):
+        v = r.get("net_change") or ""
+        if not v:
+            return Decimal(0)
         try:
-            from datetime import date as date_type
-            d = date_type.fromisoformat(played_at_str)
-            played_at = datetime.combine(d, datetime.min.time())
-        except ValueError:
-            pass
-    with Session(engine) as session:
-        players = get_active_players(session)
-    # Render review with one empty row
+            return Decimal(str(v))
+        except Exception:
+            return Decimal(0)
+    sum_net = sum((_row_net(r) for r in rows), Decimal(0))
+    balanced = abs(sum_net) <= BALANCE_EPSILON
+    extracted_any = bool(rows and (rows[0].get("raw_name") or rows[0].get("net_change")))
     return templates.TemplateResponse(
         "game_review.html",
         {
             "request": request,
             "played_at": played_at,
             "played_at_iso": played_at.strftime("%Y-%m-%d") if played_at else "",
-            "source_image_path_or_url": None,
+            "source_image_path_or_url": source_image_path_or_url or "",
             "game_id": None,
-            "rows": [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}],
+            "rows": rows,
             "players": players,
-            "sum_net": Decimal(0),
-            "balanced": True,
-            "delta": Decimal(0),
+            "sum_net": sum_net,
+            "balanced": balanced,
+            "delta": sum_net,
             "errors": [],
             "force_save": False,
             "force_reason": "",
+            "extracted_from_screenshot": extracted_any,
         },
     )
 
@@ -261,7 +276,7 @@ async def save_post(request: Request, add_another: str = ""):
         session.commit()
     redirect_url = "/dashboard?flash=Game+saved"
     if add_another and data["played_at"]:
-        redirect_url = f"/games/new/manual?date={data['played_at'].strftime('%Y-%m-%d')}&flash=Game+saved"
+        redirect_url = f"/games/new?date={data['played_at'].strftime('%Y-%m-%d')}&flash=Game+saved"
     return RedirectResponse(url=redirect_url, status_code=302)
 
 

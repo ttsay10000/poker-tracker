@@ -2,9 +2,17 @@
 {% block title %}Add game (manual) — Poker Tracker{% endblock %}
 {% block content %}
 <h1>Add past game (manual)</h1>
-<form method="post" action="/games/new/manual">
+<form method="post" action="/games/new/manual" enctype="multipart/form-data">
   <label for="played_at">Game date (required)</label>
   <input type="date" id="played_at" name="played_at" value="{{ prefill_date }}" required>
+
+  <label for="file" style="display:block; margin-top:1rem;">Screenshot (optional)</label>
+  <p class="muted">Upload a screenshot of the game results; we'll try to extract player names and amounts for you to confirm.</p>
+  <div id="upload-zone" style="border:2px dashed var(--border, #444); padding:1.5rem; border-radius:8px; margin:0.5rem 0;">
+    <input type="file" id="file" name="file" accept="image/*">
+    <div id="upload-preview" style="margin-top:0.5rem; display:none;"></div>
+  </div>
+
   <div style="margin-top:1rem;">
     <button type="submit" class="btn btn-primary">Continue to review</button>
     <a href="/dashboard" class="btn btn-secondary">Cancel</a>
