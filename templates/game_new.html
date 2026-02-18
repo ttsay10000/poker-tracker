@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Add game — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Add game</h1>
+<p class="muted">Enter the game date, then add optional notes and/or screenshots. We'll extract player names and amounts for you to confirm.</p>
+<form method="post" action="/games/new" enctype="multipart/form-data">
+  <label for="played_at">Game date (required)</label>
+  <input type="date" id="played_at" name="played_at" value="{{ prefill_date }}" required>
+
+  <label for="notes" style="display:block; margin-top:1rem;">Notes (optional)</label>
+  <textarea id="notes" name="notes" rows="3" placeholder="Paste or type game results here…" class="full-width"></textarea>
+
+  <label for="files" style="display:block; margin-top:1rem;">Screenshots (optional)</label>
+  <p class="muted">Upload one or more screenshots of the game results.</p>
+  <div id="upload-zone" style="border:2px dashed var(--border, #444); padding:1.5rem; border-radius:8px; margin:0.5rem 0;">
+    <input type="file" id="files" name="files" accept="image/*" multiple>
+    <div id="upload-preview" style="margin-top:0.5rem; display:none;"></div>
+  </div>
+
+  <div style="margin-top:1rem;">
+    <button type="submit" class="btn btn-primary">Continue to review</button>
+    <a href="/dashboard" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>
+{% endblock %}
