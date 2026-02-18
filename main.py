@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session
 
-from config import BASE_DIR, UPLOADS_DIR
+from config import BASE_DIR, DATABASE_URL, UPLOADS_DIR
 from database import create_db_and_tables, engine
 from routers import dashboard, games, players, settlements, auth_router, stats
 from auth import require_admin
@@ -36,7 +36,10 @@ app.include_router(stats.router, tags=["stats"])
 
 @app.on_event("startup")
 def startup():
-    create_db_and_tables()
+    # Only create tables from code when using SQLite (local dev). Production Postgres
+    # schema is managed solely by Alembic so alembic_version stays in sync.
+    if "sqlite" in DATABASE_URL:
+        create_db_and_tables()
 
 
 @app.get("/")

@@ -1,5 +1,8 @@
 # Render Blueprint (optional): use Dashboard instead if you prefer manual setup.
 # Docs: https://render.com/docs/blueprint-spec
+#
+# Start command must include stamp_alembic_if_needed.py so DBs that already have
+# tables (but no alembic_version row) get stamped before running migrations.
 services:
   - type: web
     name: poker-tracker

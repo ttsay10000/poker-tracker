@@ -45,12 +45,8 @@ If the repo already had a README and you get "failed to push (non-fast-forward)"
 5. Add a **Secret** (Environment variable):
    - Key: `ADMIN_PASSWORD`  
    - Value: your chosen admin password (e.g. generate a strong one).
-6. **Apply** the Blueprint. Render will build and deploy.
-7. After first deploy, run migrations in the **Shell** tab of the Web Service (or one-off job):
-   ```bash
-   alembic upgrade head
-   ```
-8. Open the service URL (e.g. `https://poker-tracker-xxxx.onrender.com`) and log in with `ADMIN_PASSWORD`.
+6. **Apply** the Blueprint. Render will build and deploy. The start command in `render.yaml` runs `stamp_alembic_if_needed.py` then `alembic upgrade head`, so migrations run automatically.
+7. Open the service URL (e.g. `https://poker-tracker-xxxx.onrender.com`) and log in with `ADMIN_PASSWORD`.
 
 ---
 
@@ -73,19 +69,18 @@ If the repo already had a README and you get "failed to push (non-fast-forward)"
    - **Region**: same as DB if possible.
    - **Branch**: `main`.
    - **Runtime**: **Python 3**.
-   - **Build Command**: `pip install -r requirements.txt`
-   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+  - **Build Command**: `pip install -r requirements.txt`
+  - **Start Command** (required — do not use only `uvicorn`):
+    ```bash
+    python stamp_alembic_if_needed.py && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT
+    ```
+    The stamp script fixes DBs that already have tables but no Alembic history (e.g. from an earlier deploy). Schema in production is managed only by Alembic.
 4. **Environment** (Add Environment Variable):
    - `ADMIN_PASSWORD` = (your secret admin password)
    - `DATABASE_URL` = (paste the **Internal Database URL** from the PostgreSQL service)
      - Render often gives `postgres://...`; the app converts it to `postgresql://` automatically.
-5. **Create Web Service**. Render will build and deploy.
-6. After first deploy, open the **Shell** tab for the Web Service and run:
-   ```bash
-   alembic upgrade head
-   ```
-   (Or use a one-off **Background Worker** that runs that command once.)
-7. Open the service URL and log in with `ADMIN_PASSWORD`.
+5. **Create Web Service**. Render will build and deploy. Migrations run as part of the start command.
+6. Open the service URL and log in with `ADMIN_PASSWORD`.
 
 ---
 
