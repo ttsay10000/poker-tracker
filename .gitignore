@@ -1,0 +1,28 @@
+# Env and secrets
+.env
+.env.local
+*.db
+poker.db
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Uploads (optional: remove if you want to commit sample images)
+uploads/*
+!uploads/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Alembic
+# Keep versions; ignore other generated files if any

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Games — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Games</h1>
+<p><a href="/dashboard" class="btn btn-secondary">Back to Dashboard</a></p>
+<table>
+  <thead>
+    <tr>
+      <th>Date</th>
+      <th>Players</th>
+      <th>Balanced</th>
+      <th>Created</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in game_list_data %}
+    <tr>
+      <td>{{ item.game.played_at.strftime('%Y-%m-%d') }}</td>
+      <td>{{ item.entry_count }}</td>
+      <td>{% if item.balanced %}✅{% else %}No{% endif %}</td>
+      <td>{{ item.game.created_at.strftime('%Y-%m-%d %H:%M') if item.game.created_at else '—' }}</td>
+      <td>
+        <a href="/games/{{ item.game.id }}" class="btn btn-small btn-secondary">View / Edit</a>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if not game_list_data %}
+<p class="muted">No games yet. <a href="/games/new/manual">Add a game</a>.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="dashboard-actions">
+  <a href="/games/new/manual" class="btn btn-primary">Add Past Game (manual)</a>
+  <a href="/games/new/upload" class="btn btn-secondary">Upload New Game (screenshot)</a>
+  <a href="/games" class="btn btn-secondary">View Games</a>
+  <a href="/players/new" class="btn btn-secondary">New player</a>
+</div>
+
+<form method="get" action="/dashboard" class="filters">
+  <label>Players
+    <select name="players" multiple size="4" style="min-width:140px;">
+      {% for p in filter_players %}
+      <option value="{{ p.id }}" {% if p.id in filter_player_ids %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>From <input type="date" name="date_from" value="{{ filter_date_from }}"></label>
+  <label>To <input type="date" name="date_to" value="{{ filter_date_to }}"></label>
+  <button type="submit" class="btn btn-secondary btn-small">Apply</button>
+</form>
+
+<div class="chart-container">
+  <canvas id="chart"></canvas>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Player</th>
+      <th>Total net</th>
+      <th>Games</th>
+      <th>Avg/game</th>
+      <th>Outstanding</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    <tr>
+      <td>{{ r.player.name }}</td>
+      <td>{{ "${:,.2f}".format(r.lifetime_net) }}</td>
+      <td>{{ r.games_played }}</td>
+      <td>{% if r.avg_per_game is not none %}{{ "${:,.2f}".format(r.avg_per_game) }}{% else %}—{% endif %}</td>
+      <td>{{ "${:,.2f}".format(r.outstanding) }}</td>
+      <td>
+        {% if r.outstanding > 0 %}
+        <span class="badge badge-success">Organizer owes</span>
+        {% elif r.outstanding < 0 %}
+        <span class="badge badge-danger">Owes organizer</span>
+        {% else %}
+        <span class="badge badge-success">Settled</span>
+        {% endif %}
+      </td>
+      <td>
+        <a href="/players/{{ r.player.id }}/edit" class="btn btn-small btn-secondary">Edit</a>
+        <a href="/settlements/record?player_id={{ r.player.id }}" class="btn btn-small btn-primary">Record payment</a>
+        {% if r.player.is_active %}
+        <form method="post" action="/players/{{ r.player.id }}/deactivate" style="display:inline;" onsubmit="return confirm('Deactivate this player?');">
+          <button type="submit" class="btn btn-small btn-danger">Deactivate</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(function () {
+  var data = {{ chart_data | tojson }};
+  if (!data.labels || data.labels.length === 0) {
+    document.getElementById('chart').parentElement.innerHTML = '<p class="muted">No game data in selected range.</p>';
+    return;
+  }
+  var ctx = document.getElementById('chart').getContext('2d');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.labels,
+      datasets: data.datasets.map(function (ds, i) {
+        return {
+          label: ds.label,
+          data: ds.data,
+          borderWidth: 2,
+          fill: false,
+          tension: 0.1
+        };
+      })
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+})();
+</script>
+{% endblock %}

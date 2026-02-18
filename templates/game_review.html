@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}{% if edit_mode %}Edit game{% else %}Review game{% endif %} — Poker Tracker{% endblock %}
+{% block content %}
+<h1>{% if edit_mode %}Edit game{% else %}Review game{% endif %}</h1>
+{% if has_settlements and edit_mode %}
+<p class="badge badge-warning">Settlements exist. Editing will change outstanding balances; settlements are not auto-adjusted.</p>
+{% endif %}
+{% if errors %}
+<ul class="error">
+  {% for e in errors %}
+  <li>{{ e }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<form method="post" action="{% if edit_mode %}/games/{{ game_id }}/save{% else %}/games/review{% endif %}" id="review-form">
+  <label for="played_at">Game date</label>
+  <input type="date" id="played_at" name="played_at" value="{{ played_at_iso }}" required>
+
+  {% if source_image_path_or_url %}
+  <p>Image: <img src="{{ source_image_path_or_url }}" alt="Source" style="max-height:120px;"></p>
+  <input type="hidden" name="source_image_path_or_url" value="{{ source_image_path_or_url }}">
+  {% endif %}
+
+  <div class="review-grid">
+    <table>
+      <thead>
+        <tr>
+          <th>Raw name</th>
+          <th>Player</th>
+          <th>Buy-in</th>
+          <th>Cashout</th>
+          <th>Final stack</th>
+          <th>Net change</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="row-template" style="display:none;">
+          <td><input type="text" name="rows[__INDEX__][raw_name]" value="" placeholder="Name from screenshot"></td>
+          <td>
+            <select name="rows[__INDEX__][player_id]" class="player-select" required>
+              <option value="">— Select player —</option>
+              {% for p in players %}
+              <option value="{{ p.id }}">{{ p.name }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td><input type="number" step="0.01" name="rows[__INDEX__][buyin]" value="" class="num"></td>
+          <td><input type="number" step="0.01" name="rows[__INDEX__][cashout]" value="" class="num"></td>
+          <td><input type="number" step="0.01" name="rows[__INDEX__][final_stack]" value="" class="num"></td>
+          <td><input type="number" step="0.01" name="rows[__INDEX__][net_change]" value="" class="num" required></td>
+          <td><button type="button" class="remove-row btn btn-small btn-danger">Remove</button></td>
+        </tr>
+        {% for r in rows %}
+        <tr>
+          <td>
+            <input type="text" name="rows[{{ loop.index0 }}][raw_name]" value="{{ r.raw_name }}" placeholder="Name from screenshot">
+          </td>
+          <td>
+            <select name="rows[{{ loop.index0 }}][player_id]" class="player-select" required>
+              <option value="">— Select player —</option>
+              {% for p in players %}
+              <option value="{{ p.id }}" {% if r.player_id == p.id %}selected{% endif %}>{{ p.name }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td><input type="number" step="0.01" name="rows[{{ loop.index0 }}][buyin]" value="{{ r.buyin }}" class="num"></td>
+          <td><input type="number" step="0.01" name="rows[{{ loop.index0 }}][cashout]" value="{{ r.cashout }}" class="num"></td>
+          <td><input type="number" step="0.01" name="rows[{{ loop.index0 }}][final_stack]" value="{{ r.final_stack }}" class="num"></td>
+          <td><input type="number" step="0.01" name="rows[{{ loop.index0 }}][net_change]" value="{{ r.net_change }}" class="num" required></td>
+          <td><button type="button" class="remove-row btn btn-small btn-danger">Remove</button></td>
+        </tr>
+        {% if r.errors %}
+        <tr><td colspan="7" class="error">{% for e in r.errors %}{{ e }}{% endfor %}</td></tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p><button type="button" id="add-row" class="btn btn-secondary btn-small">Add row</button></p>
+
+  <div class="balance-status {{ 'ok' if balanced else 'fail' }}">
+    {% if balanced %}Balanced ✅ (sum = $0.00){% else %}Discrepancy: {{ "${:,.2f}".format(delta) }}{% endif %}
+  </div>
+
+  {% if not balanced %}
+  <div class="force-save-block">
+    <label><input type="checkbox" name="force_save" value="1" {% if force_save %}checked{% endif %}> Force save (override balance)</label>
+    <label for="force_reason">Reason</label>
+    <input type="text" id="force_reason" name="force_reason" value="{{ force_reason }}" placeholder="e.g. Rounding / rake">
+  </div>
+  {% endif %}
+
+  <div style="margin-top:1rem;">
+    {% if edit_mode %}
+    <button type="submit" class="btn btn-primary">Save changes</button>
+    {% else %}
+    <button type="submit" class="btn btn-primary">Continue to Confirm</button>
+    {% endif %}
+    <a href="{% if game_id %}/games/{{ game_id }}{% else %}/games{% endif %}" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>
+{% endblock %}

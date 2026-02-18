@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Add game (manual) — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Add past game (manual)</h1>
+<form method="post" action="/games/new/manual">
+  <label for="played_at">Game date (required)</label>
+  <input type="date" id="played_at" name="played_at" value="{{ prefill_date }}" required>
+  <div style="margin-top:1rem;">
+    <button type="submit" class="btn btn-primary">Continue to review</button>
+    <a href="/dashboard" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>
+{% endblock %}

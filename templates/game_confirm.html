@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Confirm save — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Confirm save</h1>
+<div class="confirm-block">
+  <p><strong>Date:</strong> {{ parsed.played_at.strftime('%Y-%m-%d') if parsed.played_at else '—' }}</p>
+  <table>
+    <thead>
+      <tr><th>Player</th><th>Net change</th></tr>
+    </thead>
+    <tbody>
+      {% for r in parsed.rows %}
+      {% if r.player_id %}
+      <tr>
+        <td>{{ player_names.get(r.player_id, r.raw_name or r.player_id) }}</td>
+        <td>{{ "${:,.2f}".format(r.net_change) if r.net_change is not none else '—' }}</td>
+      </tr>
+      {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+  <p><strong>Sum:</strong> {{ "${:,.2f}".format(parsed.sum_net) }} {% if parsed.balanced %}✅ Balanced{% else %}(override with reason){% endif %}</p>
+</div>
+
+<form method="post" action="/games/save" id="confirm-form">
+  <input type="hidden" name="played_at" value="{{ parsed.played_at.strftime('%Y-%m-%d') if parsed.played_at else '' }}">
+  <input type="hidden" name="source_image_path_or_url" value="{{ parsed.source_image_path_or_url or '' }}">
+  {% if not parsed.balanced %}
+  <input type="hidden" name="force_save" value="1">
+  <input type="hidden" name="force_reason" value="{{ parsed.force_reason or '' }}">
+  {% endif %}
+  {% for r in parsed.rows %}
+  {% if r.player_id and r.net_change is not none %}
+  <input type="hidden" name="rows[{{ loop.index0 }}][player_id]" value="{{ r.player_id }}">
+  <input type="hidden" name="rows[{{ loop.index0 }}][raw_name]" value="{{ r.raw_name or '' }}">
+  <input type="hidden" name="rows[{{ loop.index0 }}][buyin]" value="{{ r.buyin or '' }}">
+  <input type="hidden" name="rows[{{ loop.index0 }}][cashout]" value="{{ r.cashout or '' }}">
+  <input type="hidden" name="rows[{{ loop.index0 }}][final_stack]" value="{{ r.final_stack or '' }}">
+  <input type="hidden" name="rows[{{ loop.index0 }}][net_change]" value="{{ r.net_change }}">
+  {% endif %}
+  {% endfor %}
+  <button type="submit" class="btn btn-primary">Save game</button>
+  <a href="/games/new/manual" class="btn btn-secondary">Back to edit</a>
+</form>
+<p style="margin-top:1rem;">
+  <form method="post" action="/games/save?add_another=1" style="display:inline;" id="save-add-another">
+    <input type="hidden" name="played_at" value="{{ parsed.played_at.strftime('%Y-%m-%d') if parsed.played_at else '' }}">
+    <input type="hidden" name="source_image_path_or_url" value="{{ parsed.source_image_path_or_url or '' }}">
+    {% if not parsed.balanced %}
+    <input type="hidden" name="force_save" value="1">
+    <input type="hidden" name="force_reason" value="{{ parsed.force_reason or '' }}">
+    {% endif %}
+    {% for r in parsed.rows %}
+    {% if r.player_id and r.net_change is not none %}
+    <input type="hidden" name="rows[{{ loop.index0 }}][player_id]" value="{{ r.player_id }}">
+    <input type="hidden" name="rows[{{ loop.index0 }}][raw_name]" value="{{ r.raw_name or '' }}">
+    <input type="hidden" name="rows[{{ loop.index0 }}][buyin]" value="{{ r.buyin or '' }}">
+    <input type="hidden" name="rows[{{ loop.index0 }}][cashout]" value="{{ r.cashout or '' }}">
+    <input type="hidden" name="rows[{{ loop.index0 }}][final_stack]" value="{{ r.final_stack or '' }}">
+    <input type="hidden" name="rows[{{ loop.index0 }}][net_change]" value="{{ r.net_change }}">
+    {% endif %}
+    {% endfor %}
+    <button type="submit" class="btn btn-success">Save and add another</button>
+  </form>
+</p>
+{% endblock %}

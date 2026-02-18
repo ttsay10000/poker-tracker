@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Upload game (screenshot) — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Upload game (screenshot)</h1>
+<p class="muted">Upload a screenshot; you will then enter results manually in the review step.</p>
+<form method="post" action="/games/new/upload" enctype="multipart/form-data">
+  <label for="played_at">Game date</label>
+  <input type="date" id="played_at" name="played_at" required>
+  <label for="file">Screenshot (optional)</label>
+  <div id="upload-zone" style="border:2px dashed var(--border); padding:1.5rem; border-radius:8px; margin:0.5rem 0;">
+    <input type="file" id="file-input" name="file" accept="image/*">
+    <div id="upload-preview" style="margin-top:0.5rem; display:none;"></div>
+  </div>
+  <div style="margin-top:1rem;">
+    <button type="submit" class="btn btn-primary">Continue to review</button>
+    <a href="/dashboard" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>
+{% endblock %}
