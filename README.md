@@ -1,5 +1,7 @@
 # Weekly Poker Tracker (Home Game)
 
+**Repository:** [https://github.com/ttsay10000/poker-tracker](https://github.com/ttsay10000/poker-tracker) — owner: `ttsay10000`
+
 A small web app to track weekly poker results: add games (manual or screenshot), review and correct data, enforce balance (sum of net change = 0) with optional override, and track outstanding balances and settlements.
 
 ## Features
