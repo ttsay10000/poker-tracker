@@ -40,5 +40,14 @@ UPLOADS_DIR.mkdir(exist_ok=True)
 # Balance tolerance
 BALANCE_EPSILON = 0.01
 
+# Common aliases for player matching when the LLM extracts game data (raw_name -> canonical name).
+# Used to suggest a player from the database; if the LLM can't match, it leaves the row unassigned but keeps raw_name as a starting point.
+PLAYER_ALIASES = {
+    "nik": "Nick Pham",
+    "AG": "Arjun Garg",
+    "Arjun M": "Arjun Mohan",
+    "ty": "Tyler Tsay",
+}
+
 # Max size per uploaded file (screenshots / player photos); ~10 MB, a bit above typical screenshot size
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024

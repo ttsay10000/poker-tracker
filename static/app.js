@@ -30,9 +30,27 @@
     if (reviewForm) {
       var action = (reviewForm.getAttribute('action') || '').toLowerCase();
       if (action.indexOf('/review') !== -1 && action.indexOf('/save') === -1) {
-        reviewForm.addEventListener('submit', function () {
+        reviewForm.addEventListener('submit', function (e) {
           showLoading('Continuing to confirm…');
         });
+        // Ensure "Continue to Confirm" actually submits: handle click so validation is visible and submit is reliable
+        var continueBtn = reviewForm.querySelector('button[type="submit"]');
+        if (continueBtn && continueBtn.textContent.indexOf('Continue to Confirm') !== -1) {
+          continueBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            if (reviewForm.checkValidity()) {
+              showLoading('Continuing to confirm…');
+              reviewForm.submit();
+            } else {
+              reviewForm.reportValidity();
+              var firstInvalid = reviewForm.querySelector(':invalid');
+              if (firstInvalid) {
+                firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                firstInvalid.focus();
+              }
+            }
+          });
+        }
       }
     }
     var confirmForm = document.getElementById('confirm-form');
@@ -49,17 +67,52 @@
     }
   }
 
-  // Add row in review grid (clone template row)
+  // Add row in review grid (clone template row); supports single-game (edit) and multi-game (add) forms
   function initReviewGrid() {
     var table = document.querySelector('.review-grid table tbody');
-    if (!table) return;
-    var templateRow = table.querySelector('tr.row-template');
-    if (!templateRow) return;
+    if (table) {
+      var templateRow = table.querySelector('tr.row-template');
+      if (templateRow) {
+        var addBtn = document.getElementById('add-row');
+        if (addBtn) {
+          addBtn.addEventListener('click', function () {
+            var dataRows = table.querySelectorAll('tr:not(.row-template)');
+            var nextIndex = dataRows.length;
+            var clone = templateRow.cloneNode(true);
+            clone.classList.remove('row-template');
+            clone.style.display = '';
+            clone.querySelectorAll('input, select').forEach(function (el) {
+              if (el.name) {
+                el.name = el.name.replace(/__INDEX__/g, nextIndex);
+              }
+              if (el.type === 'text' || el.type === 'number') el.value = '';
+            });
+            table.insertBefore(clone, templateRow);
+          });
+        }
+        table.addEventListener('click', function (e) {
+          if (e.target.classList.contains('remove-row')) {
+            var row = e.target.closest('tr');
+            if (row && !row.classList.contains('row-template') && table.querySelectorAll('tr:not(.row-template)').length > 1) {
+              row.remove();
+            }
+          }
+        });
+      }
+    }
 
-    var addBtn = document.getElementById('add-row');
-    if (addBtn) {
+    // Multi-game form: each section has its own "Add row" and table
+    document.querySelectorAll('.add-row-game').forEach(function (addBtn) {
+      var gIdx = addBtn.getAttribute('data-game-index');
+      if (gIdx === null) return;
+      var section = addBtn.closest('.game-review-section');
+      if (!section) return;
+      var tbody = section.querySelector('tbody[data-game-index="' + gIdx + '"]');
+      if (!tbody) return;
+      var templateRow = tbody.querySelector('tr.row-template');
+      if (!templateRow) return;
       addBtn.addEventListener('click', function () {
-        var dataRows = table.querySelectorAll('tr:not(.row-template)');
+        var dataRows = tbody.querySelectorAll('tr:not(.row-template)');
         var nextIndex = dataRows.length;
         var clone = templateRow.cloneNode(true);
         clone.classList.remove('row-template');
@@ -70,17 +123,17 @@
           }
           if (el.type === 'text' || el.type === 'number') el.value = '';
         });
-        table.insertBefore(clone, templateRow);
+        tbody.insertBefore(clone, templateRow);
       });
-    }
-
-    table.addEventListener('click', function (e) {
-      if (e.target.classList.contains('remove-row')) {
-        var row = e.target.closest('tr');
-        if (row && !row.classList.contains('row-template') && table.querySelectorAll('tr:not(.row-template)').length > 1) {
-          row.remove();
-        }
-      }
+    });
+    document.addEventListener('click', function (e) {
+      if (!e.target.classList.contains('remove-row')) return;
+      var row = e.target.closest('tr');
+      if (!row || row.classList.contains('row-template')) return;
+      var tbody = row.closest('tbody');
+      if (!tbody || !tbody.closest('.game-editable-table')) return;
+      if (tbody.querySelectorAll('tr:not(.row-template)').length <= 1) return;
+      row.remove();
     });
   }
 

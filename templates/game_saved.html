@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Game saved — Poker Tracker{% endblock %}
+{% block content %}
+<div class="saved-success" style="text-align:center; padding:3rem 1rem;">
+  <p class="saved-message" style="font-size:1.25rem; margin-bottom:1rem;">{{ message }}</p>
+  <p class="muted" style="margin-bottom:1.5rem;">Redirecting to dashboard in <span id="countdown">3</span> seconds…</p>
+  <a href="/dashboard" class="btn btn-primary">Go to dashboard now</a>
+</div>
+<script>
+(function () {
+  var count = 3;
+  var el = document.getElementById('countdown');
+  var t = setInterval(function () {
+    count--;
+    if (el) el.textContent = count;
+    if (count <= 0) {
+      clearInterval(t);
+      window.location.href = '/dashboard';
+    }
+  }, 1000);
+})();
+</script>
+{% endblock %}

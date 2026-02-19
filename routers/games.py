@@ -10,10 +10,10 @@ from sqlmodel import Session, select
 from fastapi import APIRouter
 
 from auth import require_admin
-from config import BASE_DIR, BALANCE_EPSILON, UPLOADS_DIR, OPENAI_API_KEY, MAX_UPLOAD_SIZE_BYTES
+from config import BASE_DIR, BALANCE_EPSILON, UPLOADS_DIR, OPENAI_API_KEY, MAX_UPLOAD_SIZE_BYTES, PLAYER_ALIASES
 from database import engine
 from extract_game import extract_game
-from game_forms import parse_game_form
+from game_forms import parse_game_form, parse_multi_game_form
 from models import Game, GameEntry, Player
 from services import get_active_players, has_any_settlements, settlements_affect_players, normalize_name
 
@@ -120,6 +120,13 @@ async def new_game_page(request: Request, date: str = "", flash: str = ""):
 
 @router.post("/new", response_class=HTMLResponse)
 async def new_game_post(request: Request):
+    """
+    Step 1 → Step 2 (review). Handles three use cases:
+    - Single game: one screenshot (or notes only) → one extraction, one game in games[].
+    - Single game, multiple screenshots: grouping=one_game → one extraction with all images, one game with comma-separated image URLs.
+    - Multiple games: multiple screenshots, grouping=per_screenshot → one extraction per image, N games in games[].
+    No files and no notes → one empty game (manual entry on review).
+    """
     if not require_admin(request):
         return _redirect_login()
     import uuid
@@ -177,27 +184,7 @@ async def new_game_post(request: Request):
         if source_image_path_or_url is None:
             source_image_path_or_url = f"/uploads/{name}"
 
-    # Extract from notes and/or images via LLM
-    rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
-    if OPENAI_API_KEY and (notes or saved_paths):
-        try:
-            extracted = extract_game(notes=notes or None, image_paths=saved_paths or None)
-            if extracted:
-                rows = [
-                    {
-                        "player_id": "",
-                        "raw_name": r.get("raw_name", "") or "",
-                        "buyin": r.get("buyin", "") or "",
-                        "cashout": r.get("cashout", "") or "",
-                        "final_stack": r.get("final_stack", "") or "",
-                        "net_change": r.get("net_change", "") or "",
-                        "errors": [],
-                    }
-                    for r in extracted
-                ]
-        except Exception:
-            pass
-
+    # Load players first so we can pass them to the LLM for player matching and use them when resolving suggestions
     try:
         with Session(engine) as session:
             players = get_active_players(session)
@@ -220,9 +207,131 @@ async def new_game_post(request: Request):
             return Decimal(str(v))
         except Exception:
             return Decimal(0)
-    sum_net = sum((_row_net(r) for r in rows), Decimal(0))
-    balanced = abs(sum_net) <= BALANCE_EPSILON
-    extracted_any = bool(rows and (rows[0].get("raw_name") or rows[0].get("net_change")))
+
+    def _extract_rows(extracted, name_to_id):
+        out = []
+        for r in extracted:
+            player_id = ""
+            suggested = r.get("suggested_player_name")
+            if suggested and name_to_id:
+                pid = name_to_id.get(normalize_name(suggested))
+                if pid:
+                    player_id = pid
+            out.append({
+                "player_id": player_id,
+                "raw_name": r.get("raw_name", "") or "",
+                "buyin": r.get("buyin", "") or "",
+                "cashout": r.get("cashout", "") or "",
+                "final_stack": r.get("final_stack", "") or "",
+                "net_change": r.get("net_change", "") or "",
+                "errors": [],
+            })
+        return out
+
+    name_to_id = {normalize_name(p.name): p.id for p in players}
+    player_names = [p.name for p in players]
+    games_for_review: list[dict] = []
+    screenshot_grouping = (form.get("screenshot_grouping") or "").strip() or "per_screenshot"
+
+    if OPENAI_API_KEY and (notes or saved_paths):
+        if len(saved_paths) > 1 and screenshot_grouping == "one_game":
+            # All screenshots = one game: single extraction with all images
+            all_urls = [f"/uploads/{p.name}" for p in saved_paths]
+            source_image_path_or_url_combined = ",".join(all_urls)
+            rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+            try:
+                result = extract_game(
+                    notes=notes or None,
+                    image_paths=saved_paths,
+                    player_names=player_names,
+                    alias_map=PLAYER_ALIASES or {},
+                )
+                extracted = result.get("rows") or []
+                if extracted:
+                    rows = _extract_rows(extracted, name_to_id)
+                if not played_at and result.get("suggested_played_at"):
+                    try:
+                        from datetime import date as date_type
+                        d = date_type.fromisoformat(result["suggested_played_at"])
+                        played_at = datetime.combine(d, datetime.min.time())
+                        played_at_str = result["suggested_played_at"]
+                    except (ValueError, TypeError):
+                        pass
+            except Exception:
+                pass
+            sum_net = sum((_row_net(r) for r in rows), Decimal(0))
+            games_for_review.append({
+                "source_image_path_or_url": source_image_path_or_url_combined,
+                "rows": _rows_for_template(rows),
+                "sum_net": sum_net,
+                "balanced": abs(sum_net) <= BALANCE_EPSILON,
+                "extracted_from_screenshot": bool(rows and (rows[0].get("raw_name") or rows[0].get("net_change"))),
+            })
+        elif len(saved_paths) > 1:
+            # One game per screenshot
+            for path in saved_paths:
+                name = path.name
+                url = f"/uploads/{name}"
+                try:
+                    result = extract_game(
+                        image_paths=[path],
+                        player_names=player_names,
+                        alias_map=PLAYER_ALIASES or {},
+                    )
+                    extracted = result.get("rows") or []
+                    rows = _extract_rows(extracted, name_to_id) if extracted else []
+                except Exception:
+                    rows = []
+                if not rows:
+                    rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+                sum_net = sum((_row_net(r) for r in rows), Decimal(0))
+                games_for_review.append({
+                    "source_image_path_or_url": url,
+                    "rows": _rows_for_template(rows),
+                    "sum_net": sum_net,
+                    "balanced": abs(sum_net) <= BALANCE_EPSILON,
+                    "extracted_from_screenshot": bool(rows and (rows[0].get("raw_name") or rows[0].get("net_change"))),
+                })
+        else:
+            rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+            try:
+                result = extract_game(
+                    notes=notes or None,
+                    image_paths=saved_paths or None,
+                    player_names=player_names,
+                    alias_map=PLAYER_ALIASES or {},
+                )
+                extracted = result.get("rows") or []
+                if extracted:
+                    rows = _extract_rows(extracted, name_to_id)
+                if not played_at and result.get("suggested_played_at"):
+                    try:
+                        from datetime import date as date_type
+                        d = date_type.fromisoformat(result["suggested_played_at"])
+                        played_at = datetime.combine(d, datetime.min.time())
+                        played_at_str = result["suggested_played_at"]
+                    except (ValueError, TypeError):
+                        pass
+            except Exception:
+                pass
+            sum_net = sum((_row_net(r) for r in rows), Decimal(0))
+            games_for_review.append({
+                "source_image_path_or_url": source_image_path_or_url or "",
+                "rows": _rows_for_template(rows),
+                "sum_net": sum_net,
+                "balanced": abs(sum_net) <= BALANCE_EPSILON,
+                "extracted_from_screenshot": bool(rows and (rows[0].get("raw_name") or rows[0].get("net_change"))),
+            })
+    else:
+        rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+        games_for_review.append({
+            "source_image_path_or_url": source_image_path_or_url or "",
+            "rows": _rows_for_template(rows),
+            "sum_net": Decimal(0),
+            "balanced": True,
+            "extracted_from_screenshot": False,
+        })
+
     errors_list = []
     if upload_size_error:
         errors_list.append("Some files were too large (max 10 MB per file) and were skipped.")
@@ -233,17 +342,12 @@ async def new_game_post(request: Request):
                 "request": request,
                 "played_at": played_at,
                 "played_at_iso": played_at.strftime("%Y-%m-%d") if played_at else "",
-                "source_image_path_or_url": source_image_path_or_url or "",
+                "games": games_for_review,
                 "game_id": None,
-                "rows": rows,
                 "players": players,
-                "sum_net": sum_net,
-                "balanced": balanced,
-                "delta": sum_net,
                 "errors": errors_list,
                 "force_save": False,
                 "force_reason": "",
-                "extracted_from_screenshot": extracted_any,
             },
         )
     except Exception:
@@ -259,13 +363,69 @@ async def new_game_post(request: Request):
 
 
 # ---- Review: POST with full grid -> validate; re-render or show confirm ----
+def _form_has_multi_game(form_dict: dict) -> bool:
+    return any(k.startswith("games[0]") for k in (form_dict or {}).keys())
+
 @router.post("/review", response_class=HTMLResponse)
 async def review_post(request: Request):
     if not require_admin(request):
         return _redirect_login()
     try:
         form = await request.form()
-        data = parse_game_form(_form_dict(form))
+        fd = _form_dict(form)
+    except Exception:
+        return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
+    with Session(engine) as session:
+        players = get_active_players(session)
+    if _form_has_multi_game(fd):
+        try:
+            data = parse_multi_game_form(fd)
+        except Exception:
+            return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
+        with Session(engine) as session:
+            for g in data["games"]:
+                _resolve_new_players(session, g["rows"])
+            session.commit()
+            players = get_active_players(session)
+        if data["errors"]:
+            games_for_review = [
+                {
+                    "source_image_path_or_url": g["source_image_path_or_url"] or "",
+                    "rows": _rows_for_template(g["rows"]),
+                    "sum_net": g["sum_net"],
+                    "balanced": g["balanced"],
+                    "extracted_from_screenshot": False,
+                }
+                for g in data["games"]
+            ]
+            return templates.TemplateResponse(
+                "game_review.html",
+                {
+                    "request": request,
+                    "played_at": data["played_at"],
+                    "played_at_iso": data["played_at"].strftime("%Y-%m-%d") if data["played_at"] else "",
+                    "games": games_for_review,
+                    "game_id": None,
+                    "players": players,
+                    "errors": data["errors"],
+                    "force_save": fd.get("force_save") in ("1", "on", "true", "yes"),
+                    "force_reason": (fd.get("force_reason") or "").strip() or "",
+                    "edit_mode": False,
+                },
+            )
+        player_names = {p.id: p.name for p in players}
+        return templates.TemplateResponse(
+            "game_confirm.html",
+            {
+                "request": request,
+                "parsed": data,
+                "players": players,
+                "player_names": player_names,
+                "game_id": None,
+            },
+        )
+    try:
+        data = parse_game_form(fd)
     except Exception:
         return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
     with Session(engine) as session:
@@ -279,20 +439,21 @@ async def review_post(request: Request):
                 "request": request,
                 "played_at": data["played_at"],
                 "played_at_iso": data["played_at"].strftime("%Y-%m-%d") if data["played_at"] else "",
-                "source_image_path_or_url": data["source_image_path_or_url"] or "",
+                "games": [{
+                    "source_image_path_or_url": data["source_image_path_or_url"] or "",
+                    "rows": _rows_for_template(data["rows"]),
+                    "sum_net": data["sum_net"],
+                    "balanced": data["balanced"],
+                    "extracted_from_screenshot": False,
+                }],
                 "game_id": None,
-                "rows": _rows_for_template(data["rows"]),
                 "players": players,
-                "sum_net": data["sum_net"],
-                "balanced": data["balanced"],
-                "delta": data["delta"],
                 "errors": data["errors"],
                 "force_save": data["force_save"],
                 "force_reason": data["force_reason"] or "",
                 "edit_mode": False,
             },
         )
-    # Valid: show confirm page (no DB write)
     player_names = {p.id: p.name for p in players}
     return templates.TemplateResponse(
         "game_confirm.html",
@@ -313,7 +474,73 @@ async def save_post(request: Request, add_another: str = ""):
         return _redirect_login()
     try:
         form = await request.form()
-        data = parse_game_form(_form_dict(form))
+        fd = _form_dict(form)
+    except Exception:
+        return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
+    if _form_has_multi_game(fd):
+        try:
+            data = parse_multi_game_form(fd)
+        except Exception:
+            return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
+        if data["errors"]:
+            with Session(engine) as session:
+                players = get_active_players(session)
+            games_for_review = [
+                {
+                    "source_image_path_or_url": g["source_image_path_or_url"] or "",
+                    "rows": _rows_for_template(g["rows"]),
+                    "sum_net": g["sum_net"],
+                    "balanced": g["balanced"],
+                    "extracted_from_screenshot": False,
+                }
+                for g in data["games"]
+            ]
+            return templates.TemplateResponse(
+                "game_review.html",
+                {
+                    "request": request,
+                    "played_at": data["played_at"],
+                    "played_at_iso": data["played_at"].strftime("%Y-%m-%d") if data["played_at"] else "",
+                    "games": games_for_review,
+                    "game_id": None,
+                    "players": players,
+                    "errors": data["errors"],
+                    "force_save": fd.get("force_save") in ("1", "on", "true", "yes"),
+                    "force_reason": (fd.get("force_reason") or "").strip() or "",
+                    "edit_mode": False,
+                },
+            )
+        with Session(engine) as session:
+            for g in data["games"]:
+                _resolve_new_players(session, g["rows"])
+            for g in data["games"]:
+                game = Game(
+                    played_at=data["played_at"],
+                    source_image_path_or_url=g["source_image_path_or_url"],
+                )
+                session.add(game)
+                session.flush()
+                for r in g["rows"]:
+                    if not r["player_id"] or r["net_change"] is None:
+                        continue
+                    entry = GameEntry(
+                        game_id=game.id,
+                        player_id=r["player_id"],
+                        raw_name=r["raw_name"],
+                        buyin=r["buyin"],
+                        cashout=r["cashout"],
+                        final_stack=r["final_stack"],
+                        net_change=r["net_change"],
+                    )
+                    session.add(entry)
+            session.commit()
+        n_games = len(data["games"])
+        redirect_url = f"/games/saved?n={n_games}"
+        if add_another and data["played_at"]:
+            redirect_url = f"/games/new?date={data['played_at'].strftime('%Y-%m-%d')}&flash=Games+saved"
+        return RedirectResponse(url=redirect_url, status_code=302)
+    try:
+        data = parse_game_form(fd)
     except Exception:
         return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
     if data["errors"]:
@@ -325,13 +552,15 @@ async def save_post(request: Request, add_another: str = ""):
                 "request": request,
                 "played_at": data["played_at"],
                 "played_at_iso": data["played_at"].strftime("%Y-%m-%d") if data["played_at"] else "",
-                "source_image_path_or_url": data["source_image_path_or_url"] or "",
+                "games": [{
+                    "source_image_path_or_url": data["source_image_path_or_url"] or "",
+                    "rows": _rows_for_template(data["rows"]),
+                    "sum_net": data["sum_net"],
+                    "balanced": data["balanced"],
+                    "extracted_from_screenshot": False,
+                }],
                 "game_id": None,
-                "rows": _rows_for_template(data["rows"]),
                 "players": players,
-                "sum_net": data["sum_net"],
-                "balanced": data["balanced"],
-                "delta": data["delta"],
                 "errors": data["errors"],
                 "force_save": data["force_save"],
                 "force_reason": data["force_reason"] or "",
@@ -360,10 +589,28 @@ async def save_post(request: Request, add_another: str = ""):
             )
             session.add(entry)
         session.commit()
-    redirect_url = "/dashboard?flash=Game+saved"
+    redirect_url = "/games/saved?n=1"
     if add_another and data["played_at"]:
         redirect_url = f"/games/new?date={data['played_at'].strftime('%Y-%m-%d')}&flash=Game+saved"
     return RedirectResponse(url=redirect_url, status_code=302)
+
+
+# ---- Success landing (after save) ----
+@router.get("/saved", response_class=HTMLResponse)
+async def game_saved_page(request: Request, n: str = "1"):
+    if not require_admin(request):
+        return _redirect_login()
+    try:
+        count = max(1, int(n))
+    except ValueError:
+        count = 1
+    message = "Game added successfully." if count == 1 else f"{count} games added successfully."
+    response = templates.TemplateResponse(
+        "game_saved.html",
+        {"request": request, "message": message, "count": count},
+    )
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return response
 
 
 # ---- Edit saved game ----

@@ -102,6 +102,15 @@ input, select, textarea {
 }
 input[type="number"] { width: 8rem; }
 input.error { border-color: var(--danger); }
+
+/* Error lists (e.g. review form) */
+ul.error { color: var(--danger); list-style: disc; margin-left: 1.25rem; }
+ul.error li { color: var(--danger); }
+
+/* Review form: required-field errors at bottom */
+.review-errors { color: var(--danger); margin-top: 0.5rem; }
+.review-errors .review-errors-title { font-weight: 600; margin-bottom: 0.25rem; }
+.review-errors ul.error { margin-top: 0; }
 .form-row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end; }
 .form-group { margin-bottom: 1rem; }
 

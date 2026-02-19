@@ -125,3 +125,82 @@ def parse_game_form(form_data: dict, row_prefix: str = "rows") -> dict:
         "balanced": balanced,
         "errors": errors,
     }
+
+
+def parse_multi_game_form(form_data: dict) -> dict:
+    """
+    form_data with keys like played_at, games[0][source_image_path_or_url], games[0][rows][0][player_id], ...
+    Returns: {
+        played_at: datetime | None,
+        games: list of { source_image_path_or_url, force_save, force_reason, rows, sum_net, balanced, ... },
+        errors: list str
+    }
+    """
+    played_at = _parse_date(form_data.get("played_at"))
+    force_save = form_data.get("force_save") in ("1", "on", "true", "yes")
+    force_reason = (form_data.get("force_reason") or "").strip() or None
+
+    # Discover game indices: games[0][...], games[1][...]
+    game_indices: set[int] = set()
+    for key in form_data:
+        if not key.startswith("games[") or "]" not in key:
+            continue
+        rest = key[6:]
+        end = rest.find("]")
+        if end == -1:
+            continue
+        try:
+            g = int(rest[:end])
+            game_indices.add(g)
+        except ValueError:
+            continue
+
+    games_out = []
+    errors = []
+    if not played_at:
+        errors.append("Played at (date) is required")
+
+    for g in sorted(game_indices):
+        prefix = f"games[{g}]"
+        source_image_path_or_url = (form_data.get(f"{prefix}[source_image_path_or_url]") or "").strip() or None
+        row_prefix = f"games[{g}][rows]"
+        rows_raw: dict[int, dict] = {}
+        for key, value in form_data.items():
+            if not key.startswith(row_prefix + "[") or "]" not in key:
+                continue
+            rest = key[len(row_prefix) + 1:]
+            parts = rest.split("]", 1)
+            try:
+                idx = int(parts[0])
+                field = parts[1].lstrip("[").rstrip("]") if len(parts) > 1 else ""
+                if not field:
+                    continue
+                if idx not in rows_raw:
+                    rows_raw[idx] = {}
+                rows_raw[idx][field] = value
+            except (ValueError, IndexError):
+                continue
+        indices = sorted(rows_raw.keys())
+        rows = [parse_row(rows_raw[i], i) for i in indices]
+        sum_net = sum((r["net_change"] or Decimal(0) for r in rows if r["net_change"] is not None), Decimal(0))
+        balanced = abs(sum_net) <= BALANCE_EPSILON
+        label = f"Game {g + 1}"
+        for i, r in enumerate(rows):
+            if r["errors"]:
+                errors.extend([f"{label} row {i + 1}: {e}" for e in r["errors"]])
+        if not balanced and not (force_save and force_reason):
+            errors.append(f"{label} does not balance (sum = {sum_net:.2f}). Use Force Save with a reason to override.")
+        games_out.append({
+            "source_image_path_or_url": source_image_path_or_url,
+            "force_save": force_save,
+            "force_reason": force_reason,
+            "rows": rows,
+            "sum_net": sum_net,
+            "delta": sum_net,
+            "balanced": balanced,
+        })
+    return {
+        "played_at": played_at,
+        "games": games_out,
+        "errors": errors,
+    }
