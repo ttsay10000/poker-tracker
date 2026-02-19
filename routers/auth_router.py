@@ -1,13 +1,12 @@
 """Login / logout."""
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse
-from fastapi.templating import Jinja2Templates
 
 from auth import clear_admin_cookie, require_admin, set_admin_cookie
 from config import BASE_DIR
+from templating import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 @router.get("/login")

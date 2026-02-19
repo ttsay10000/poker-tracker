@@ -6,12 +6,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, func, select
 
 from auth import require_admin
 from config import BASE_DIR, UPLOADS_DIR, MAX_UPLOAD_SIZE_BYTES
 from database import engine
+from templating import templates
 from models import GameEntry, Player, Settlement
 from services import get_active_players, get_player_by_id, normalize_name, outstanding
 from stats_services import (
@@ -21,13 +21,12 @@ from stats_services import (
     most_frequent_best_friend_nemesis,
     player_core_stats,
     player_streaks,
-    recent_games_for_player,
+    player_activity_log,
     rivalry_badges_windows,
     rivalry_monthly_counts,
 )
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 ALLOWED_PHOTO_EXT = frozenset({"jpg", "jpeg", "png", "gif", "webp"})
 
@@ -91,7 +90,7 @@ async def player_profile(
         core = player_core_stats(session, player_id, d_from, d_to)
         streaks = player_streaks(session, player_id, d_from, d_to)
         chart = chart_data_single_player(session, player_id, d_from, d_to)
-        recent = recent_games_for_player(session, player_id, limit=None, date_from=d_from, date_to=d_to)
+        activity_log = player_activity_log(session, player_id, date_from=d_from, date_to=d_to)
         with_x = lineup_with_x_stats(session, player_id, d_from, d_to, min_sample)
         rivalry = rivalry_badges_windows(session, player_id, d_from, d_to, min_sample)
         monthly = rivalry_monthly_counts(session, player_id, min_games_in_month=2, min_sample_month=2)
@@ -105,7 +104,7 @@ async def player_profile(
             "core": core,
             "streaks": streaks,
             "chart_data": chart,
-            "recent_games": recent,
+            "activity_log": activity_log,
             "with_x_rows": with_x,
             "rivalry": rivalry,
             "rivalry_monthly": monthly,

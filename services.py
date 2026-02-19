@@ -8,7 +8,7 @@ from sqlmodel import Session, col, func, select
 from sqlmodel.sql.expression import Select
 
 from config import BALANCE_EPSILON
-from models import Game, GameEntry, Player, Settlement
+from models import Expense, Game, GameEntry, Player, Settlement
 
 
 def normalize_name(name: str) -> str:
@@ -43,8 +43,17 @@ def settled_net(session: Session, player_id: str) -> Decimal:
     return Decimal(str(r))
 
 
+def expense_total(session: Session, player_id: str) -> Decimal:
+    """Sum of non-game charges for this player (positive = they owe)."""
+    r = session.exec(
+        select(func.coalesce(func.sum(Expense.amount), 0)).where(Expense.player_id == player_id)
+    ).one()
+    return Decimal(str(r))
+
+
 def outstanding(session: Session, player_id: str) -> Decimal:
-    return lifetime_net(session, player_id) - settled_net(session, player_id)
+    """Lifetime net from games + expenses (charges) − settlements. Game stats use only lifetime_net from games."""
+    return lifetime_net(session, player_id) + expense_total(session, player_id) - settled_net(session, player_id)
 
 
 def games_played_count(session: Session, player_id: str) -> int:

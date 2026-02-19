@@ -7,8 +7,9 @@
   <a href="/games/new" class="btn btn-primary">Add game</a>
   <a href="/games" class="btn btn-secondary">View / Edit games</a>
   <a href="/players/new" class="btn btn-secondary">New player</a>
+  <a href="/settlements" class="btn btn-secondary">Finances</a>
   <a href="/settlements/record-batch" class="btn btn-secondary">Record payments (multiple)</a>
-  <form method="post" action="/settlements/settled-up-all" class="dashboard-action-form" style="display:inline;" onsubmit="return confirm({{ ('Record a settlement for every player that zeroes out their outstanding (total $' ~ '{:,.2f}'.format(total_outstanding) ~ ')?') | tojson }});">
+  <form method="post" action="/settlements/settled-up-all" class="dashboard-action-form" style="display:inline;" onsubmit="return confirm({{ ('Record a settlement for every player that zeroes out their outstanding (total ' ~ (total_outstanding | signed_dollars) ~ ')?') | tojson }});">
     <button type="submit" class="btn btn-secondary">Settled up (all)</button>
   </form>
 </div>
@@ -51,28 +52,28 @@
     <div class="superlative-item">
       <span class="superlative-label">Lifetime winner</span>
       <span class="superlative-value positive">{{ superlatives.lifetime_winner.player.name }}</span>
-      <span class="superlative-sub">${{ "{:,.2f}".format(superlatives.lifetime_winner.lifetime_net) }}</span>
+      <span class="superlative-sub">{{ superlatives.lifetime_winner.lifetime_net | signed_dollars }}</span>
     </div>
     {% endif %}
     {% if superlatives.lifetime_loser %}
     <div class="superlative-item">
       <span class="superlative-label">Lifetime loser</span>
       <span class="superlative-value negative">{{ superlatives.lifetime_loser.player.name }}</span>
-      <span class="superlative-sub">${{ "{:,.2f}".format(superlatives.lifetime_loser.lifetime_net) }}</span>
+      <span class="superlative-sub">{{ superlatives.lifetime_loser.lifetime_net | signed_dollars }}</span>
     </div>
     {% endif %}
     {% if superlatives.most_consistent %}
     <div class="superlative-item">
       <span class="superlative-label">Most consistent</span>
       <span class="superlative-value">{{ superlatives.most_consistent.player.name }}</span>
-      <span class="superlative-sub">{% if superlatives.most_consistent.avg_per_game is not none %}${{ "{:,.2f}".format(superlatives.most_consistent.avg_per_game) }}/game{% else %}—{% endif %}</span>
+      <span class="superlative-sub">{% if superlatives.most_consistent.avg_per_game is not none %}{{ superlatives.most_consistent.avg_per_game | signed_dollars }}/game{% else %}—{% endif %}</span>
     </div>
     {% endif %}
     {% if superlatives.most_inconsistent %}
     <div class="superlative-item">
       <span class="superlative-label">Most inconsistent</span>
       <span class="superlative-value">{{ superlatives.most_inconsistent.player.name }}</span>
-      <span class="superlative-sub">{% if superlatives.most_inconsistent.avg_per_game is not none %}${{ "{:,.2f}".format(superlatives.most_inconsistent.avg_per_game) }}/game{% else %}—{% endif %}</span>
+      <span class="superlative-sub">{% if superlatives.most_inconsistent.avg_per_game is not none %}{{ superlatives.most_inconsistent.avg_per_game | signed_dollars }}/game{% else %}—{% endif %}</span>
     </div>
     {% endif %}
   </div>
@@ -101,17 +102,17 @@
         <span class="badge badge-info" title="Harper crew">HC</span>
         {% endif %}
       </td>
-      <td class="{% if r.lifetime_net > 0 %}positive{% elif r.lifetime_net < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.lifetime_net) }}</td>
+      <td class="{% if r.lifetime_net > 0 %}positive{% elif r.lifetime_net < 0 %}negative{% endif %}">{{ r.lifetime_net | signed_dollars }}</td>
       <td>{{ r.games_played }}</td>
-      <td class="{% if r.avg_per_game is not none and r.avg_per_game > 0 %}positive{% elif r.avg_per_game is not none and r.avg_per_game < 0 %}negative{% endif %}">{% if r.avg_per_game is not none %}{{ "${:,.2f}".format(r.avg_per_game) }}{% else %}—{% endif %}</td>
-      <td class="{% if r.outstanding > 0 %}positive{% elif r.outstanding < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.outstanding) }}</td>
+      <td class="{% if r.avg_per_game is not none and r.avg_per_game > 0 %}positive{% elif r.avg_per_game is not none and r.avg_per_game < 0 %}negative{% endif %}">{{ r.avg_per_game | signed_dollars }}</td>
+      <td class="{% if r.outstanding > 0 %}positive{% elif r.outstanding < 0 %}negative{% endif %}">{{ r.outstanding | signed_dollars }}</td>
       <td>
         {% if r.outstanding > 0 %}
         <span class="badge badge-success">Organizer owes</span>
         {% elif r.outstanding < 0 %}
         <span class="badge badge-danger">Owes organizer</span>
         {% else %}
-        <span class="badge badge-success">Settled</span>
+        <span class="badge badge-secondary">Settled</span>
         {% endif %}
       </td>
       <td class="dashboard-actions-cell">
@@ -128,7 +129,7 @@
     {% endfor %}
   </tbody>
 </table>
-<p class="table-total" style="margin-top:0.75rem; font-weight:600;">Total outstanding: {{ "${:,.2f}".format(total_outstanding) }}</p>
+<p class="table-total" style="margin-top:0.75rem; font-weight:600;">Total outstanding: {{ total_outstanding | signed_dollars }}</p>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -187,6 +188,16 @@
 </script>
 <script>
 (function () {
+  // 50 distinct colors for chart lines/legend (works on dark background)
+  var CHART_COLORS = [
+    '#58a6ff', '#f778ba', '#d29922', '#3fb950', '#79c0ff', '#ff7b72', '#e3b341', '#56d364',
+    '#a371f7', '#ffa657', '#39c5cf', '#db61a2', '#f0c846', '#7ee787', '#bc8cff', '#ff8e3c',
+    '#2ea043', '#8957e5', '#e5534b', '#6e7681', '#1f6feb', '#da3633', '#9e6a03', '#238636',
+    '#8b949e', '#388bfd', '#f85149', '#d4a72c', '#db6d28', '#1a7f37', '#bf4b8a', '#e0b429',
+    '#26a641', '#8c43e6', '#c24e00', '#0e7c3a', '#c93dc1', '#c69026', '#1b8c3a', '#6f42c1',
+    '#b84c00', '#127f38', '#a337b3', '#a67c00', '#158c3d', '#5a32a3', '#9c3f00', '#0d7a35',
+    '#4ecdc4', '#e056fd'
+  ];
   var data = {{ chart_data | tojson }};
   if (!data.labels || data.labels.length === 0) {
     document.getElementById('chart').parentElement.innerHTML = '<p class="muted">No game data in selected range.</p>';
@@ -198,9 +209,12 @@
     data: {
       labels: data.labels,
       datasets: data.datasets.map(function (ds, i) {
+        var color = CHART_COLORS[i % CHART_COLORS.length]; // recycle palette after 50 players
         return {
           label: ds.label,
           data: ds.data,
+          borderColor: color,
+          backgroundColor: color,
           borderWidth: 2,
           fill: false,
           tension: 0.1

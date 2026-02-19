@@ -21,13 +21,13 @@
       <td>
         {{ item.entry_count }}
         <div class="game-totals" style="font-size:0.75rem; color:var(--muted, #666); margin-top:0.15rem;">
-          Buyins {{ "${:,.2f}".format(item.total_buyins) }} · Cashouts {{ "${:,.2f}".format(item.total_cashouts) }} · Net {{ "${:,.2f}".format(item.sum_net) }}
+          Buyins {{ item.total_buyins | signed_dollars }} · Cashouts {{ item.total_cashouts | signed_dollars }} · Net {{ item.sum_net | signed_dollars }}
         </div>
         {% if item.possible_duplicate %}
         <span class="possible-duplicate-flag" style="font-size:0.7rem; color:var(--warning, #e0a000);" title="Another game has the same buyins, cashouts, and net">⚠ Possible duplicate</span>
         {% endif %}
       </td>
-      <td class="{% if item.discrepancy > 0 %}positive{% elif item.discrepancy < 0 %}negative{% endif %}">{{ "${:,.2f}".format(item.discrepancy) }}</td>
+      <td class="{% if item.discrepancy > 0 %}positive{% elif item.discrepancy < 0 %}negative{% endif %}">{{ item.discrepancy | signed_dollars }}</td>
       <td>{% if item.balanced %}✅{% else %}No{% endif %}</td>
       <td>{{ item.game.created_at.strftime('%Y-%m-%d %H:%M') if item.game.created_at else '—' }}</td>
       <td>
@@ -40,7 +40,7 @@
 </table>
 {% if game_list_data %}
 <p class="discrepancy-total" style="margin-top:0.75rem; font-weight:600; {% if total_discrepancy != 0 %}color:var(--warning, #e0a000);{% else %}color:var(--muted, #666);{% endif %}">
-  Running total discrepancy: {{ "${:,.2f}".format(total_discrepancy) }}
+  Running total discrepancy: {{ total_discrepancy | signed_dollars }}
 </p>
 {% endif %}
 {% if not game_list_data %}

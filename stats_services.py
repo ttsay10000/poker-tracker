@@ -7,7 +7,7 @@ from typing import Optional
 
 from sqlmodel import Session, col, func, select
 
-from models import Game, GameEntry, Player
+from models import Expense, Game, GameEntry, Player
 
 
 # ---- Filter helpers ----
@@ -258,6 +258,58 @@ def recent_games_for_player(
             "final_stack": e.final_stack,
             "lineup_size": counts.get(g.id, 0),
         })
+    return out
+
+
+def player_activity_log(
+    session: Session,
+    player_id: str,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> list[dict]:
+    """Chronological log of games and expenses for one player (most recent first). Each item has 'type': 'game' | 'expense' and a sort key."""
+    games = _game_query(session, date_from, date_to, player_id)
+    games = list(reversed(games))
+    game_ids = [g.id for g in games]
+    entries = _entries_for_player(session, player_id, game_ids)
+    by_game = {e.game_id: e for e in entries}
+    counts = {}
+    for gid in game_ids:
+        c = session.exec(select(func.count(GameEntry.id)).where(GameEntry.game_id == gid)).one()
+        counts[gid] = c or 0
+
+    q = select(Expense).where(Expense.player_id == player_id).order_by(Expense.created_at)
+    if date_from:
+        q = q.where(col(Expense.created_at) >= datetime.combine(date_from, datetime.min.time()))
+    if date_to:
+        q = q.where(col(Expense.created_at) <= datetime.combine(date_to, datetime.max.time()))
+    expenses = list(session.exec(q).all())
+
+    out = []
+    for g in games:
+        e = by_game.get(g.id)
+        if not e:
+            continue
+        out.append({
+            "type": "game",
+            "sort_at": g.played_at,
+            "game_id": g.id,
+            "played_at": g.played_at,
+            "net_change": e.net_change,
+            "buyin": e.buyin,
+            "cashout": e.cashout,
+            "lineup_size": counts.get(g.id, 0),
+        })
+    for ex in expenses:
+        out.append({
+            "type": "expense",
+            "sort_at": ex.created_at,
+            "expense_id": ex.id,
+            "amount": ex.amount,
+            "note": ex.note,
+            "created_at": ex.created_at,
+        })
+    out.sort(key=lambda x: x["sort_at"], reverse=True)
     return out
 
 

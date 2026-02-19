@@ -35,13 +35,13 @@
       {% if r.player_id %}
       <tr>
         <td>{{ player_names.get(r.player_id, r.raw_name or r.player_id) }}</td>
-        <td class="{% if r.net_change is not none and r.net_change > 0 %}positive{% elif r.net_change is not none and r.net_change < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.net_change) if r.net_change is not none else '—' }}</td>
+        <td class="{% if r.net_change is not none and r.net_change > 0 %}positive{% elif r.net_change is not none and r.net_change < 0 %}negative{% endif %}">{{ r.net_change | signed_dollars }}</td>
       </tr>
       {% endif %}
       {% endfor %}
     </tbody>
   </table>
-  <p><strong>Sum:</strong> {{ "${:,.2f}".format(game.sum_net) }} {% if game.balanced %}✅ Balanced{% else %}(override with reason){% endif %}</p>
+  <p><strong>Sum:</strong> {{ game.sum_net | signed_dollars }} {% if game.balanced %}✅ Balanced{% else %}(override with reason){% endif %}</p>
 </div>
 {% endfor %}
 {% set ns = namespace(total=0) %}
@@ -51,7 +51,7 @@
 {% endif %}
 {% endfor %}
 {% if ns.total != 0 %}
-<p class="discrepancy-total" style="margin-bottom:1rem; font-weight:600; color:var(--warning, #e0a000);">Total from discrepancies (this batch): {{ "${:,.2f}".format(ns.total) }}</p>
+<p class="discrepancy-total" style="margin-bottom:1rem; font-weight:600; color:var(--warning, #e0a000);">Total from discrepancies (this batch): {{ ns.total | signed_dollars }}</p>
 {% endif %}
 {% set any_unbalanced = (parsed.games | rejectattr('balanced') | list | length) > 0 %}
 <form method="post" action="/games/save" id="confirm-form">
@@ -77,6 +77,13 @@
   {% endif %}
   {% endfor %}
   {% endfor %}
+  <div class="paid-up-block" style="margin-bottom:1rem; padding:0.75rem; background:var(--card); border:1px solid var(--border); border-radius:8px;">
+    <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+      <input type="checkbox" name="paid_up" value="1">
+      <span>Has this been paid up?</span>
+    </label>
+    <p class="muted" style="font-size:0.875rem; margin:0.35rem 0 0 1.75rem;">If checked, the game will be saved and all amounts will be marked as already settled so they don't show as outstanding.</p>
+  </div>
   <div class="action-row confirm-actions">
     <button type="submit" class="btn btn-primary btn-upload-master">{% if parsed.games|length > 1 %}Upload games{% else %}Upload game{% endif %}</button>
     {% if parsed.games|length == 1 %}
@@ -98,16 +105,16 @@
       {% if r.player_id %}
       <tr>
         <td>{{ player_names.get(r.player_id, r.raw_name or r.player_id) }}</td>
-        <td class="{% if r.net_change is not none and r.net_change > 0 %}positive{% elif r.net_change is not none and r.net_change < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.net_change) if r.net_change is not none else '—' }}</td>
+        <td class="{% if r.net_change is not none and r.net_change > 0 %}positive{% elif r.net_change is not none and r.net_change < 0 %}negative{% endif %}">{{ r.net_change | signed_dollars }}</td>
       </tr>
       {% endif %}
       {% endfor %}
     </tbody>
   </table>
-  <p><strong>Sum:</strong> {{ "${:,.2f}".format(parsed.sum_net) }} {% if parsed.balanced %}✅ Balanced{% else %}(override with reason){% endif %}</p>
+  <p><strong>Sum:</strong> {{ parsed.sum_net | signed_dollars }} {% if parsed.balanced %}✅ Balanced{% else %}(override with reason){% endif %}</p>
 </div>
 {% if not parsed.balanced %}
-<p class="discrepancy-total" style="margin-bottom:1rem; font-weight:600; color:var(--warning, #e0a000);">Total from discrepancies (this batch): {{ "${:,.2f}".format(parsed.sum_net) }}</p>
+<p class="discrepancy-total" style="margin-bottom:1rem; font-weight:600; color:var(--warning, #e0a000);">Total from discrepancies (this batch): {{ parsed.sum_net | signed_dollars }}</p>
 {% endif %}
 
 <form method="post" action="/games/save" id="confirm-form">
@@ -130,6 +137,13 @@
   <input type="hidden" name="rows[{{ loop.index0 }}][net_change]" value="{{ r.net_change }}">
   {% endif %}
   {% endfor %}
+  <div class="paid-up-block" style="margin-bottom:1rem; padding:0.75rem; background:var(--card); border:1px solid var(--border); border-radius:8px;">
+    <label style="display:flex; align-items:center; gap:0.5rem; cursor:pointer;">
+      <input type="checkbox" name="paid_up" value="1">
+      <span>Has this been paid up?</span>
+    </label>
+    <p class="muted" style="font-size:0.875rem; margin:0.35rem 0 0 1.75rem;">If checked, the game will be saved and all amounts will be marked as already settled so they don't show as outstanding.</p>
+  </div>
   <div class="action-row confirm-actions">
     <button type="submit" class="btn btn-primary btn-upload-master">Upload game</button>
     <button type="button" class="btn btn-link" id="save-add-another-btn">Save and add another</button>

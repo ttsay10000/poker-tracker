@@ -104,7 +104,7 @@
     <button type="button" id="refresh-players" class="btn btn-link btn-small">Refresh player list</button>
   </p>
   <div class="balance-status {{ 'ok' if balanced else 'fail' }}" id="balance-status-wrap">
-    <span id="balance-status-msg">{% if balanced %}Balanced ✅ (sum = $0.00){% else %}Discrepancy: {{ "${:,.2f}".format(delta) }}{% endif %}</span>
+    <span id="balance-status-msg">{% if balanced %}Balanced ✅ (sum = +$0.00){% else %}Discrepancy: {{ delta | signed_dollars }}{% endif %}</span>
   </div>
   <p class="muted balance-status-help" style="font-size:0.85rem; margin-top:0.25rem;">In a closed game the total should be $0. Adjust Net change or buy-in / cashout / final stack so they match: Net = (Cashout + Final stack) − Buy-in.</p>
   {% else %}
@@ -127,7 +127,7 @@
           <td>{{ r.buyin or '—' }}</td>
           <td>{{ r.cashout or '—' }}</td>
           <td>{{ r.final_stack or '—' }}</td>
-          <td class="{% if r.net_change is not none and r.net_change != '' and (r.net_change | float) > 0 %}positive{% elif r.net_change is not none and r.net_change != '' and (r.net_change | float) < 0 %}negative{% endif %}">{% if r.net_change is not none and r.net_change != '' %}{{ "${:,.2f}".format(r.net_change | float) }}{% else %}—{% endif %}</td>
+          <td class="{% if r.net_change is not none and r.net_change != '' and (r.net_change | float) > 0 %}positive{% elif r.net_change is not none and r.net_change != '' and (r.net_change | float) < 0 %}negative{% endif %}">{% if r.net_change is not none and r.net_change != '' %}{{ (r.net_change | float) | signed_dollars }}{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -207,7 +207,7 @@
       <button type="button" class="add-row-game btn btn-secondary btn-small" data-game-index="{{ g_idx }}">Add row</button>
     </p>
     <div class="balance-status {{ 'ok' if game.balanced else 'fail' }}" style="margin-top:0.5rem;">
-      {% if game.balanced %}Balanced ✅ (sum = $0.00){% else %}Discrepancy: {{ "${:,.2f}".format(game.sum_net) }}{% endif %}
+      {% if game.balanced %}Balanced ✅ (sum = +$0.00){% else %}Discrepancy: {{ game.sum_net | signed_dollars }}{% endif %}
     </div>
   </section>
   {% endfor %}
@@ -219,7 +219,7 @@
   {% endfor %}
   {% if ns.total != 0 %}
   <p class="discrepancy-total" style="margin-top:1rem; font-weight:600; color:var(--warning, #e0a000);">
-    Total from discrepancies (this batch): {{ "${:,.2f}".format(ns.total) }}
+    Total from discrepancies (this batch): {{ ns.total | signed_dollars }}
   </p>
   {% endif %}
   <p style="margin-top:1rem;">

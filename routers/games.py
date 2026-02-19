@@ -1,12 +1,11 @@
 """Games: list, manual new, review, confirm, save; edit saved game."""
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from fastapi import APIRouter
@@ -16,12 +15,12 @@ from config import BASE_DIR, BALANCE_EPSILON, UPLOADS_DIR, OPENAI_API_KEY, MAX_U
 from database import engine
 from extract_game import extract_game
 from game_forms import parse_game_form, parse_multi_game_form
-from models import Game, GameEntry, Player
+from models import Game, GameEntry, Player, Settlement
 from services import get_active_players, has_any_settlements, settlements_affect_players, normalize_name
+from templating import templates
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 def _redirect_login():
@@ -691,6 +690,7 @@ async def save_post(request: Request, add_another: str = ""):
                     "confirm_error": "Please provide a reason for the discrepancy to save.",
                 },
             )
+        paid_up = fd.get("paid_up") in ("1", "on", "true", "yes")
         try:
             with Session(engine) as session:
                 for g in data["games"]:
@@ -715,6 +715,18 @@ async def save_post(request: Request, add_another: str = ""):
                             net_change=r["net_change"],
                         )
                         session.add(entry)
+                    if paid_up:
+                        settled_at = g["played_at"].date() if g.get("played_at") else date.today()
+                        for r in g["rows"]:
+                            if r.get("player_id") and r.get("net_change") is not None:
+                                session.add(
+                                    Settlement(
+                                        player_id=r["player_id"],
+                                        settled_at=settled_at,
+                                        amount=r["net_change"],
+                                        note="Paid up at game save",
+                                    )
+                                )
                 session.commit()
         except Exception as e:
             logger.exception("Save game: failed to save %d game(s) to database: %s", len(data["games"]), e)
@@ -768,6 +780,7 @@ async def save_post(request: Request, add_another: str = ""):
                 "confirm_error": "Please provide a reason for the discrepancy to save.",
             },
         )
+    paid_up = fd.get("paid_up") in ("1", "on", "true", "yes")
     try:
         with Session(engine) as session:
             _resolve_new_players(session, data["rows"])
@@ -790,6 +803,18 @@ async def save_post(request: Request, add_another: str = ""):
                     net_change=r["net_change"],
                 )
                 session.add(entry)
+            if paid_up:
+                settled_at = data["played_at"].date() if data.get("played_at") else date.today()
+                for r in data["rows"]:
+                    if r.get("player_id") and r.get("net_change") is not None:
+                        session.add(
+                            Settlement(
+                                player_id=r["player_id"],
+                                settled_at=settled_at,
+                                amount=r["net_change"],
+                                note="Paid up at game save",
+                            )
+                        )
             session.commit()
     except Exception as e:
         logger.exception("Save game: failed to save game to database: %s", e)

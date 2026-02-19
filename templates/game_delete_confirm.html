@@ -11,7 +11,7 @@
 
 <p><strong>Game date:</strong> {{ played_at_str }}</p>
 {% if sum_net is not none %}
-<p><strong>Net (this game):</strong> {{ "${:,.2f}".format(sum_net) }}</p>
+<p><strong>Net (this game):</strong> {{ sum_net | signed_dollars }}</p>
 {% endif %}
 
 <form method="post" action="/games/{{ game_id }}/delete" style="margin-top:1.5rem;">

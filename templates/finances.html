@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Finances — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Finances</h1>
+
+<section class="finances-section card" id="record-payment">
+  <h2>Record payments</h2>
+  <p class="muted">Record a payment (you paid a player or they paid you). <a href="/settlements/record-batch">Record payments for multiple players</a></p>
+  {% if request.query_params.get('error') == 'invalid_amount' or request.query_params.get('error') == 'player_required' %}
+  <p class="error">{% if request.query_params.get('error') == 'invalid_amount' %}Enter a valid amount.{% else %}Select a player.{% endif %}</p>
+  {% elif request.query_params.get('error') == 'zero_amount' %}
+  <p class="error">Amount cannot be zero.</p>
+  {% endif %}
+  <form method="post" action="/settlements/record" id="form-record-payment" class="finances-form">
+    <label for="player_id">Player</label>
+    <select id="player_id" name="player_id" required>
+      <option value="">— Select —</option>
+      {% for p in players %}
+      <option value="{{ p.id }}" {% if p.id == preselect_player_id %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    <label for="amount">Amount ($)</label>
+    <input type="number" id="amount" name="amount" step="0.01" min="0" required placeholder="0.00">
+    <label>Direction</label>
+    <div>
+      <label style="display:inline;margin-right:1rem;"><input type="radio" name="direction" value="i_paid_player" checked> I paid player</label>
+      <label style="display:inline;"><input type="radio" name="direction" value="player_paid_me"> Player paid me</label>
+    </div>
+    <label for="settled_at">Date</label>
+    <input type="date" id="settled_at" name="settled_at" value="{{ request.query_params.get('date') or today_iso }}">
+    <label for="note">Note (optional)</label>
+    <input type="text" id="note" name="note" placeholder="e.g. Venmo monthly">
+    <div style="margin-top:1rem;">
+      <button type="submit" class="btn btn-primary">Record payment</button>
+    </div>
+  </form>
+</section>
+
+<hr class="finances-divider">
+
+<section class="finances-section card" id="add-charge">
+  <h2>Add global charge</h2>
+  <p class="muted">Add a non-game charge (e.g. food, supplies). The amount is owed by each selected player until they settle. Affects <strong>outstanding only</strong>—not game stats.</p>
+  {% if request.query_params.get('charge_error') == 'invalid_amount' %}
+  <p class="error">Enter a valid amount.</p>
+  {% elif request.query_params.get('charge_error') == 'zero_amount' %}
+  <p class="error">Amount must be greater than zero.</p>
+  {% elif request.query_params.get('charge_error') == 'no_players' %}
+  <p class="error">No players selected. Choose Harper crew only or All players.</p>
+  {% endif %}
+  <form method="post" action="/settlements/charge" id="form-add-charge" class="finances-form">
+    <label for="charge_amount">Amount per player ($)</label>
+    <input type="number" id="charge_amount" name="amount" step="0.01" min="0.01" required placeholder="0.00">
+    <label for="charge_note">Note (optional)</label>
+    <input type="text" id="charge_note" name="note" placeholder="e.g. Pizza night">
+    <label>Apply to</label>
+    <div>
+      <label class="filter-checkbox" style="display:block; margin-bottom:0.5rem;">
+        <input type="radio" name="apply_to" value="harper_crew" id="apply_harper">
+        Harper crew only
+      </label>
+      <label class="filter-checkbox" style="display:block;">
+        <input type="radio" name="apply_to" value="all_players" id="apply_all" checked>
+        All active players
+      </label>
+    </div>
+    <div style="margin-top:1rem;">
+      <button type="submit" class="btn btn-primary">Add charge</button>
+    </div>
+  </form>
+</section>
+
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var formPayment = document.getElementById('form-record-payment');
+  var formCharge = document.getElementById('form-add-charge');
+  if (formPayment) {
+    formPayment.addEventListener('submit', function (e) {
+      if (!confirm('Record this payment?')) e.preventDefault();
+    });
+  }
+  if (formCharge) {
+    formCharge.addEventListener('submit', function (e) {
+      if (!confirm('Add this charge to the selected players? They will owe this amount until settled.')) e.preventDefault();
+    });
+  }
+  var hash = window.location.hash;
+  if (hash === '#add-charge') {
+    var el = document.getElementById('add-charge');
+    if (el) el.scrollIntoView({ behavior: 'smooth' });
+  }
+})();
+</script>
+{% endblock %}

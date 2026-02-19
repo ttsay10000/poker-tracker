@@ -4,12 +4,12 @@ from typing import Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from auth import require_admin
 from config import BASE_DIR
 from database import engine
+from templating import templates
 from models import Player
 from services import (
     chart_data,
@@ -23,7 +23,6 @@ from services import (
 )
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 def _redirect_login():

@@ -124,13 +124,14 @@ ul.error li { color: var(--danger); }
 .badge-success { background: rgba(63, 185, 80, 0.25); color: var(--success); }
 .badge-warning { background: rgba(210, 153, 34, 0.25); color: var(--warning); }
 .badge-danger { background: rgba(248, 81, 73, 0.25); color: var(--danger); }
+.badge-secondary { background: rgba(139, 148, 158, 0.25); color: var(--muted); }
 
 /* Dashboard actions */
 .dashboard-actions { margin-bottom: 1.5rem; display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
 .dashboard-actions .btn { min-height: 2.5rem; line-height: 1.5; box-sizing: border-box; vertical-align: middle; }
 .dashboard-action-form { display: inline-flex; align-items: stretch; }
 .dashboard-action-form .btn { height: 2.5rem; }
-.chart-container { background: var(--card); border-radius: 8px; padding: 1rem 1rem 2rem 1rem; margin: 1rem 0 2rem 0; height: 560px; }
+.chart-container { background: var(--card); border-radius: 8px; padding: 1rem 1rem 2rem 1rem; margin: 1rem 0 2rem 0; height: 680px; }
 .rivalry-windows { margin-top: 3rem; }
 .rivalry-windows > p.muted { margin-bottom: 1rem; }
 
@@ -225,6 +226,16 @@ ul.error li { color: var(--danger); }
 
 /* Stats & profile */
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+
+.finances-section { margin-bottom: 0; }
+.finances-section h2 { font-size: 1.15rem; margin-bottom: 0.5rem; }
+.finances-divider { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+.finances-form label { display: block; margin-top: 0.75rem; margin-bottom: 0.25rem; color: var(--muted); }
+.finances-form label:first-of-type { margin-top: 0; }
+.finances-form input[type="text"],
+.finances-form input[type="number"],
+.finances-form input[type="date"],
+.finances-form select { width: 100%; max-width: 280px; padding: 0.4rem 0.6rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
 .profile-header { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
 .profile-photo-section { flex-shrink: 0; }
 .player-photo { width: 120px; height: 120px; object-fit: cover; border-radius: 8px; display: block; }
@@ -246,6 +257,7 @@ ul.error li { color: var(--danger); }
 .rivalry-badges-inline .badge { text-decoration: none; }
 .positive { color: var(--success); }
 .negative { color: var(--danger); }
+.neutral { color: var(--muted); }
 .table-wrap { overflow-x: auto; }
 
 /* Dashboard table: actions column — compact buttons, consistent spacing/wrap */

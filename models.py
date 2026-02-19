@@ -28,6 +28,7 @@ class Player(SQLModel, table=True):
 
     game_entries: list["GameEntry"] = Relationship(back_populates="player")
     settlements: list["Settlement"] = Relationship(back_populates="player")
+    expenses: list["Expense"] = Relationship(back_populates="player")
 
 
 class Game(SQLModel, table=True):
@@ -70,3 +71,17 @@ class Settlement(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     player: Optional[Player] = Relationship(back_populates="settlements")
+
+
+class Expense(SQLModel, table=True):
+    """Non-game charge (e.g. food, supplies). Positive amount = player owes organizer. Affects outstanding only, not game stats."""
+
+    __tablename__ = "expense"
+
+    id: str = Field(default_factory=new_uuid, primary_key=True)
+    player_id: str = Field(foreign_key="player.id")
+    amount: Decimal = Field()  # >0 = player owes this much (outstanding until settled)
+    note: Optional[str] = Field(default=None, max_length=512)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    player: Optional[Player] = Relationship(back_populates="expenses")

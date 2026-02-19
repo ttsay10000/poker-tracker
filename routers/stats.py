@@ -4,16 +4,15 @@ from typing import Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.templating import Jinja2Templates
 from sqlmodel import Session
 
 from auth import require_admin
 from config import BASE_DIR
 from database import engine
 from stats_services import get_players_for_stats, leaderboard_rows
+from templating import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
 def _redirect_login():

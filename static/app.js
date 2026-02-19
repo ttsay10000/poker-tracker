@@ -159,7 +159,8 @@
       var balanced = Math.abs(total) <= BALANCE_EPSILON;
       wrap.classList.toggle('ok', balanced);
       wrap.classList.toggle('fail', !balanced);
-      msgEl.textContent = balanced ? 'Balanced \u2705 (sum = $0.00)' : 'Discrepancy: $' + total.toFixed(2);
+      var disp = balanced ? '+$0.00' : (total >= 0 ? '+' : '-') + '$' + Math.abs(total).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      msgEl.textContent = balanced ? 'Balanced \u2705 (sum = ' + disp + ')' : 'Discrepancy: ' + disp;
     }
 
     function onCellChange(e) {
