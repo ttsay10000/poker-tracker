@@ -138,7 +138,11 @@ async def new_game_post(request: Request):
         return _redirect_login()
     import uuid
     try:
-        form = await request.form()
+        # Allow 10 MB per file and many files (multiple screenshots = multiple games)
+        form = await request.form(
+            max_part_size=MAX_UPLOAD_SIZE_BYTES,
+            max_files=50,
+        )
     except Exception:
         return templates.TemplateResponse(
             "game_new.html",
@@ -170,6 +174,7 @@ async def new_game_post(request: Request):
     saved_original_filenames = []  # user's filename (e.g. IMG_2025-02-15.jpg) for LLM date inference
     source_image_path_or_url = None
     upload_size_error = False
+    upload_save_error = False  # e.g. disk full, permission denied
     for file in files:
         if not hasattr(file, "filename") or not file.filename:
             continue
@@ -187,7 +192,11 @@ async def new_game_post(request: Request):
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "wb") as f:
                 f.write(body)
+        except OSError:
+            upload_save_error = True
+            continue
         except Exception:
+            upload_save_error = True
             continue
         saved_paths.append(path)
         saved_original_filenames.append(original_filename)
@@ -345,6 +354,7 @@ async def new_game_post(request: Request):
                 "played_at_iso": game_date_iso,
             })
     else:
+        # No API key, or no notes and no files: show empty game
         rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
         games_for_review.append({
             "source_image_path_or_url": source_image_path_or_url or "",
@@ -356,8 +366,21 @@ async def new_game_post(request: Request):
         })
 
     errors_list = []
+    if (notes or saved_paths) and not OPENAI_API_KEY:
+        errors_list.append("OPENAI_API_KEY is not set. AI extraction from notes/screenshots is disabled. Set it in your environment to use it, or fill in the game manually below.")
+    if (notes or saved_paths) and OPENAI_API_KEY and games_for_review:
+        last_game = games_for_review[-1]
+        rows_for_last = last_game.get("rows") or []
+        has_any_filled = any(
+            (r.get("raw_name") or "").strip() or (r.get("net_change") or "").strip()
+            for r in rows_for_last
+        )
+        if not has_any_filled:
+            errors_list.append("Could not extract player rows from your notes/screenshots. You can fill in the game manually below.")
     if upload_size_error:
         errors_list.append("Some files were too large (max 10 MB per file) and were skipped.")
+    if upload_save_error:
+        errors_list.append("Some files could not be saved (e.g. disk full or permission issue). Try fewer/smaller files or check server storage.")
     try:
         return templates.TemplateResponse(
             "game_review.html",

@@ -1,11 +1,14 @@
 """Extract poker game data from screenshots and/or notes using OpenAI."""
 import json
 import base64
+import logging
 from pathlib import Path
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import OPENAI_API_KEY
+
+logger = logging.getLogger(__name__)
 
 _EXTRACT_PROMPT_BASE = """Extract poker game results into a single JSON object with two fields:
 
@@ -191,7 +194,8 @@ def extract_game(
         )
         text = (response.choices[0].message.content or "").strip()
         return _parse_response(text)
-    except Exception:
+    except Exception as e:
+        logger.warning("Game extraction failed (notes or images): %s", e, exc_info=True)
         return empty_result
 
 
