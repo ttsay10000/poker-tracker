@@ -56,16 +56,24 @@ def _form_dict(request_form) -> dict:
 
 
 def _rows_for_template(rows: list) -> list:
-    """Convert parsed rows to template-friendly dicts (Decimal -> str for form values)."""
+    """Convert parsed rows to template-friendly dicts (Decimal -> str for form values).
+    Net is derived from buyin/cashout/final_stack when missing: (cashout + final_stack) - buyin.
+    """
     out = []
     for r in rows:
+        net = r.get("net_change")
+        if net is None and (r.get("buyin") is not None or r.get("cashout") is not None or r.get("final_stack") is not None):
+            buyin = r.get("buyin") or Decimal(0)
+            cashout = r.get("cashout") or Decimal(0)
+            stack = r.get("final_stack") or Decimal(0)
+            net = (cashout + stack) - buyin
         out.append({
             "player_id": r["player_id"] or "",
             "raw_name": r["raw_name"] or "",
             "buyin": str(r["buyin"]) if r["buyin"] is not None else "",
             "cashout": str(r["cashout"]) if r["cashout"] is not None else "",
             "final_stack": str(r["final_stack"]) if r["final_stack"] is not None else "",
-            "net_change": str(r["net_change"]) if r["net_change"] is not None else "",
+            "net_change": str(net) if net is not None else "",
             "errors": r.get("errors", []),
         })
     return out
@@ -479,7 +487,7 @@ async def new_game_post(request: Request):
             {
                 "request": request,
                 "prefill_date": played_at_str or "",
-                "flash_message": "Something went wrong. Please try again.",
+                "flash_message": f"Something went wrong. Please try again. ({type(e).__name__}: {e})",
                 "flash_type": "error",
             },
         )

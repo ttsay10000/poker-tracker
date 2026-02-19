@@ -42,10 +42,11 @@ def parse_row(row: dict, index: int) -> dict:
     err = []
     if not player_id:
         err.append("Select a player")
-    if net_change is None and (buyin is not None or cashout is not None):
-        net_change = (cashout or Decimal(0)) - (buyin or Decimal(0))
+    # Derive net from buyin / cashout / final_stack when missing: (cashout + final_stack) - buyin
+    if net_change is None and (buyin is not None or cashout is not None or final_stack is not None):
+        net_change = (cashout or Decimal(0)) + (final_stack or Decimal(0)) - (buyin or Decimal(0))
     if net_change is None:
-        err.append("Net change required or provide buyin/cashout")
+        err.append("Net change required or provide buy-in and cashout/stack")
     # Do not require net_change to match cashout - buyin; allow discrepancy (tracked as total discrepancy).
     return {
         "player_id": player_id,
