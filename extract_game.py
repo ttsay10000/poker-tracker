@@ -9,7 +9,7 @@ from config import OPENAI_API_KEY
 
 _EXTRACT_PROMPT_BASE = """Extract poker game results into a single JSON object with two fields:
 
-1) suggested_played_at: If the game date is visible in the image(s) or text, set this to YYYY-MM-DD. If not visible or unclear, set to null.
+1) suggested_played_at: If the game date is visible in the image(s), text, or in the file name(s) (e.g. a date in the filename like 2025-02-15 or 20250215), set this to YYYY-MM-DD. If not visible or unclear, set to null.
 
 2) players: An array of player rows. For each row return:
 - raw_name: the name as shown (e.g. from the app or list)
@@ -148,11 +148,17 @@ def extract_game(
     prompt_suffix = _player_hints_prompt(player_names or [], alias_map or {})
     extract_prompt = _EXTRACT_PROMPT_BASE + prompt_suffix
 
+    # Include file names so the LLM can use them to infer game date (e.g. "poker_2025-02-15.png")
+    file_names_context = ""
+    if valid_paths:
+        names = [p.name for p in valid_paths]
+        file_names_context = "File names of the image(s) (use these to help infer the game date if a date appears in the filename): " + ", ".join(names) + "\n\n"
+
     content: list[dict] = []
     if notes:
         content.append({
             "type": "text",
-            "text": "Pasted notes:\n\n" + notes + "\n\n" + extract_prompt,
+            "text": file_names_context + "Pasted notes:\n\n" + notes + "\n\n" + extract_prompt,
         })
     for path in valid_paths:
         media_type, b64 = _encode_image(path)
@@ -162,9 +168,9 @@ def extract_game(
         })
     if not content:
         return empty_result
-    # If we only had images, prepend the prompt
+    # If we only had images, prepend the prompt (with file names so LLM can use them for date)
     if content and content[0].get("type") != "text":
-        content.insert(0, {"type": "text", "text": extract_prompt})
+        content.insert(0, {"type": "text", "text": file_names_context + extract_prompt})
 
     try:
         from openai import OpenAI

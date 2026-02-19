@@ -2,7 +2,7 @@
 {% block title %}Games — Poker Tracker{% endblock %}
 {% block content %}
 <h1>Games</h1>
-<p><a href="/dashboard" class="btn btn-secondary">Back to Dashboard</a></p>
+<p><a href="/dashboard" class="btn btn-link">← Back to Dashboard</a></p>
 <table>
   <thead>
     <tr>
@@ -27,6 +27,11 @@
     {% endfor %}
   </tbody>
 </table>
+{% if game_list_data and total_discrepancy != 0 %}
+<p class="discrepancy-total" style="margin-top:0.75rem; font-weight:600; color:var(--warning, #e0a000);">
+  Total from discrepancies (unbalanced games): {{ "${:,.2f}".format(total_discrepancy) }}
+</p>
+{% endif %}
 {% if not game_list_data %}
 <p class="muted">No games yet. <a href="/games/new">Add a game</a>.</p>
 {% endif %}

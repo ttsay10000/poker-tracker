@@ -25,9 +25,11 @@
 {% endif %}
 
 <form method="post" action="{% if edit_mode %}/games/{{ game_id }}/save{% else %}/games/review{% endif %}" id="review-form">
+  {% if edit_mode %}
   <label for="played_at">Game date</label>
   <input type="date" id="played_at" name="played_at" value="{{ played_at_iso }}" required>
 
+  {% endif %}
   {% if edit_mode %}
   {# ----- Edit mode: single game (existing flow) ----- #}
   {% if source_image_path_or_url %}
@@ -99,7 +101,7 @@
   </div>
   <p>
     <button type="button" id="add-row" class="btn btn-secondary btn-small">Add row</button>
-    <button type="button" id="refresh-players" class="btn btn-secondary btn-small">Refresh player list</button>
+    <button type="button" id="refresh-players" class="btn btn-link btn-small">Refresh player list</button>
   </p>
   <div class="balance-status {{ 'ok' if balanced else 'fail' }}">
     {% if balanced %}Balanced ✅ (sum = $0.00){% else %}Discrepancy: {{ "${:,.2f}".format(delta) }}{% endif %}
@@ -110,6 +112,8 @@
   {% set g_idx = loop.index0 %}
   <section class="game-review-section" style="margin-top:1.5rem; padding:1rem; border:1px solid var(--border, #444); border-radius:8px;" data-game-index="{{ g_idx }}">
     <h2 style="font-size:1.1rem; margin-bottom:0.75rem;">Game {{ loop.index }}</h2>
+    <label for="played_at_{{ g_idx }}">Game date</label>
+    <input type="date" id="played_at_{{ g_idx }}" name="games[{{ g_idx }}][played_at]" value="{{ game.played_at_iso or played_at_iso }}" required style="margin-bottom:0.75rem;">
     {% if game.rows %}
     <table class="extracted-summary" style="margin-bottom:0.5rem; font-size:0.9rem; color:var(--muted, #888);">
       <thead>
@@ -206,24 +210,36 @@
     </div>
   </section>
   {% endfor %}
+  {% set ns = namespace(total=0) %}
+  {% for g in games %}
+  {% if not g.balanced %}
+  {% set ns.total = ns.total + g.sum_net %}
+  {% endif %}
+  {% endfor %}
+  {% if ns.total != 0 %}
+  <p class="discrepancy-total" style="margin-top:1rem; font-weight:600; color:var(--warning, #e0a000);">
+    Total from discrepancies (this batch): {{ "${:,.2f}".format(ns.total) }}
+  </p>
+  {% endif %}
   <p style="margin-top:1rem;">
-    <button type="button" id="refresh-players" class="btn btn-secondary btn-small">Refresh player list</button>
+    <button type="button" id="refresh-players" class="btn btn-link btn-small">Refresh player list</button>
   </p>
   <div class="force-save-block" style="margin-top:1rem;">
     <label><input type="checkbox" name="force_save" value="1" {% if force_save %}checked{% endif %}> Force save (override balance for any game)</label>
-    <label for="force_reason">Reason</label>
+    <label for="force_reason">Reason (optional here)</label>
     <input type="text" id="force_reason" name="force_reason" value="{{ force_reason }}" placeholder="e.g. Rounding / rake">
+    <p class="muted" style="margin-top:0.35rem; margin-bottom:0; font-size:0.9rem;">You can leave this blank and enter a reason on the next page when you save. Games with a discrepancy are still saved; we just track the total.</p>
   </div>
   {% endif %}
 
-  <div style="margin-top:1rem;">
+  <div class="action-row">
     {% if edit_mode %}
     <button type="submit" class="btn btn-primary">Save changes</button>
     {% else %}
     <button type="submit" class="btn btn-primary">Continue to Confirm</button>
-    <span class="muted" style="margin-left:0.5rem; font-size:0.85rem;">(next: final summary)</span>
+    <span class="muted" style="font-size:0.85rem;">(next: final summary)</span>
     {% endif %}
-    <a href="{% if game_id %}/games/{{ game_id }}{% else %}/games{% endif %}" class="btn btn-secondary">Cancel</a>
+    <a href="{% if game_id %}/games/{{ game_id }}{% else %}/games{% endif %}" class="btn btn-link">Cancel</a>
   </div>
 
   {% if not edit_mode and errors %}

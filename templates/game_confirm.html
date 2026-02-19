@@ -4,17 +4,20 @@
 <p class="add-game-step"><strong>Step 3 of 3</strong> — Confirm & save</p>
 <h1>Confirm save</h1>
 {% if parsed.games and parsed.games|length > 1 %}
-<p class="muted" style="margin-bottom:0.75rem;">Review the {{ parsed.games|length }} games below. Click <strong>Save all games</strong> to add them, or <strong>Back to edit</strong> to change anything.</p>
+<p class="muted" style="margin-bottom:0.75rem;">Review the {{ parsed.games|length }} games below. When ready, click <strong>Upload games</strong> to add them, or <strong>Back to edit</strong> to change anything.</p>
 {% else %}
-<p class="muted" style="margin-bottom:0.75rem;">Review the summary below. Click <strong>Save game</strong> to add this game, or <strong>Back to edit</strong> to change anything.</p>
+<p class="muted" style="margin-bottom:0.75rem;">Review the summary below. When ready, click <strong>Upload game</strong> to add it, or <strong>Back to edit</strong> to change anything.</p>
+{% endif %}
+{% if confirm_error %}
+<p class="error" role="alert" style="margin-bottom:1rem;">{{ confirm_error }}</p>
 {% endif %}
 
 {% if parsed.games %}
 {# ----- Multi-game confirm ----- #}
-<p><strong>Date:</strong> {{ parsed.played_at.strftime('%Y-%m-%d') if parsed.played_at else '—' }}</p>
 {% for game in parsed.games %}
 <div class="confirm-block" style="margin-bottom:1.5rem;">
   <h2 style="font-size:1rem;">Game {{ loop.index }}</h2>
+  <p><strong>Date:</strong> {{ game.played_at.strftime('%Y-%m-%d') if game.played_at else '—' }}</p>
   {% if game.source_image_path_or_url %}
   <p><strong>Image{% if (game.source_image_path_or_url or '').split(',') | length > 1 %}s{% endif %}:</strong></p>
   {% for img_url in (game.source_image_path_or_url or '').split(',') %}
@@ -41,15 +44,27 @@
   <p><strong>Sum:</strong> {{ "${:,.2f}".format(game.sum_net) }} {% if game.balanced %}✅ Balanced{% else %}(override with reason){% endif %}</p>
 </div>
 {% endfor %}
+{% set ns = namespace(total=0) %}
+{% for g in parsed.games %}
+{% if not g.balanced %}
+{% set ns.total = ns.total + g.sum_net %}
+{% endif %}
+{% endfor %}
+{% if ns.total != 0 %}
+<p class="discrepancy-total" style="margin-bottom:1rem; font-weight:600; color:var(--warning, #e0a000);">Total from discrepancies (this batch): {{ "${:,.2f}".format(ns.total) }}</p>
+{% endif %}
 {% set any_unbalanced = (parsed.games | rejectattr('balanced') | list | length) > 0 %}
 <form method="post" action="/games/save" id="confirm-form">
-  <input type="hidden" name="played_at" value="{{ parsed.played_at.strftime('%Y-%m-%d') if parsed.played_at else '' }}">
   {% if any_unbalanced %}
   <input type="hidden" name="force_save" value="1">
-  <input type="hidden" name="force_reason" value="{{ parsed.games[0].force_reason or '' }}">
+  <div class="force-reason-block" style="margin-bottom:1rem; padding:0.75rem; background:var(--card); border:1px solid var(--warning); border-radius:8px;">
+    <label for="force_reason_confirm">Reason for discrepancy (required to save)</label>
+    <input type="text" id="force_reason_confirm" name="force_reason" value="{{ parsed.games[0].force_reason or '' }}" placeholder="e.g. Rounding / rake" required>
+  </div>
   {% endif %}
   {% for game in parsed.games %}
   {% set g_idx = loop.index0 %}
+  <input type="hidden" name="games[{{ g_idx }}][played_at]" value="{{ game.played_at.strftime('%Y-%m-%d') if game.played_at else '' }}">
   <input type="hidden" name="games[{{ g_idx }}][source_image_path_or_url]" value="{{ game.source_image_path_or_url or '' }}">
   {% for r in game.rows %}
   {% if r.player_id and r.net_change is not none %}
@@ -62,35 +77,14 @@
   {% endif %}
   {% endfor %}
   {% endfor %}
-  <button type="submit" class="btn btn-primary">{% if parsed.games|length > 1 %}Save all games{% else %}Save game{% endif %}</button>
-  <a href="/games/new" class="btn btn-secondary">Back to edit</a>
+  <div class="action-row confirm-actions">
+    <button type="submit" class="btn btn-primary btn-upload-master">{% if parsed.games|length > 1 %}Upload games{% else %}Upload game{% endif %}</button>
+    {% if parsed.games|length == 1 %}
+    <button type="button" class="btn btn-link" id="save-add-another-btn">Save and add another</button>
+    {% endif %}
+    <a href="/games/new" class="btn btn-link">Back to edit</a>
+  </div>
 </form>
-{% if parsed.games|length == 1 %}
-<p style="margin-top:1rem;">
-  <form method="post" action="/games/save?add_another=1" style="display:inline;" id="save-add-another">
-    <input type="hidden" name="played_at" value="{{ parsed.played_at.strftime('%Y-%m-%d') if parsed.played_at else '' }}">
-    {% for game in parsed.games %}
-    {% set g_idx = loop.index0 %}
-    <input type="hidden" name="games[{{ g_idx }}][source_image_path_or_url]" value="{{ game.source_image_path_or_url or '' }}">
-    {% for r in game.rows %}
-    {% if r.player_id and r.net_change is not none %}
-    <input type="hidden" name="games[{{ g_idx }}][rows][{{ loop.index0 }}][player_id]" value="{{ r.player_id }}">
-    <input type="hidden" name="games[{{ g_idx }}][rows][{{ loop.index0 }}][raw_name]" value="{{ r.raw_name or '' }}">
-    <input type="hidden" name="games[{{ g_idx }}][rows][{{ loop.index0 }}][buyin]" value="{{ r.buyin or '' }}">
-    <input type="hidden" name="games[{{ g_idx }}][rows][{{ loop.index0 }}][cashout]" value="{{ r.cashout or '' }}">
-    <input type="hidden" name="games[{{ g_idx }}][rows][{{ loop.index0 }}][final_stack]" value="{{ r.final_stack or '' }}">
-    <input type="hidden" name="games[{{ g_idx }}][rows][{{ loop.index0 }}][net_change]" value="{{ r.net_change }}">
-    {% endif %}
-    {% endfor %}
-    {% endfor %}
-    {% if any_unbalanced %}
-    <input type="hidden" name="force_save" value="1">
-    <input type="hidden" name="force_reason" value="{{ parsed.games[0].force_reason or '' }}">
-    {% endif %}
-    <button type="submit" class="btn btn-success">Save and add another</button>
-  </form>
-</p>
-{% endif %}
 {% else %}
 {# ----- Single-game confirm (legacy / edit flow) ----- #}
 <div class="confirm-block">
@@ -112,13 +106,19 @@
   </table>
   <p><strong>Sum:</strong> {{ "${:,.2f}".format(parsed.sum_net) }} {% if parsed.balanced %}✅ Balanced{% else %}(override with reason){% endif %}</p>
 </div>
+{% if not parsed.balanced %}
+<p class="discrepancy-total" style="margin-bottom:1rem; font-weight:600; color:var(--warning, #e0a000);">Total from discrepancies (this batch): {{ "${:,.2f}".format(parsed.sum_net) }}</p>
+{% endif %}
 
 <form method="post" action="/games/save" id="confirm-form">
   <input type="hidden" name="played_at" value="{{ parsed.played_at.strftime('%Y-%m-%d') if parsed.played_at else '' }}">
   <input type="hidden" name="source_image_path_or_url" value="{{ parsed.source_image_path_or_url or '' }}">
   {% if not parsed.balanced %}
   <input type="hidden" name="force_save" value="1">
-  <input type="hidden" name="force_reason" value="{{ parsed.force_reason or '' }}">
+  <div class="force-reason-block" style="margin-bottom:1rem; padding:0.75rem; background:var(--card); border:1px solid var(--warning); border-radius:8px;">
+    <label for="force_reason_single">Reason for discrepancy (required to save)</label>
+    <input type="text" id="force_reason_single" name="force_reason" value="{{ parsed.force_reason or '' }}" placeholder="e.g. Rounding / rake" required>
+  </div>
   {% endif %}
   {% for r in parsed.rows %}
   {% if r.player_id and r.net_change is not none %}
@@ -130,29 +130,11 @@
   <input type="hidden" name="rows[{{ loop.index0 }}][net_change]" value="{{ r.net_change }}">
   {% endif %}
   {% endfor %}
-  <button type="submit" class="btn btn-primary">Save game</button>
-  <a href="/games/new" class="btn btn-secondary">Back to edit</a>
+  <div class="action-row confirm-actions">
+    <button type="submit" class="btn btn-primary btn-upload-master">Upload game</button>
+    <button type="button" class="btn btn-link" id="save-add-another-btn">Save and add another</button>
+    <a href="/games/new" class="btn btn-link">Back to edit</a>
+  </div>
 </form>
-<p style="margin-top:1rem;">
-  <form method="post" action="/games/save?add_another=1" style="display:inline;" id="save-add-another">
-    <input type="hidden" name="played_at" value="{{ parsed.played_at.strftime('%Y-%m-%d') if parsed.played_at else '' }}">
-    <input type="hidden" name="source_image_path_or_url" value="{{ parsed.source_image_path_or_url or '' }}">
-    {% if not parsed.balanced %}
-    <input type="hidden" name="force_save" value="1">
-    <input type="hidden" name="force_reason" value="{{ parsed.force_reason or '' }}">
-    {% endif %}
-    {% for r in parsed.rows %}
-    {% if r.player_id and r.net_change is not none %}
-    <input type="hidden" name="rows[{{ loop.index0 }}][player_id]" value="{{ r.player_id }}">
-    <input type="hidden" name="rows[{{ loop.index0 }}][raw_name]" value="{{ r.raw_name or '' }}">
-    <input type="hidden" name="rows[{{ loop.index0 }}][buyin]" value="{{ r.buyin or '' }}">
-    <input type="hidden" name="rows[{{ loop.index0 }}][cashout]" value="{{ r.cashout or '' }}">
-    <input type="hidden" name="rows[{{ loop.index0 }}][final_stack]" value="{{ r.final_stack or '' }}">
-    <input type="hidden" name="rows[{{ loop.index0 }}][net_change]" value="{{ r.net_change }}">
-    {% endif %}
-    {% endfor %}
-    <button type="submit" class="btn btn-success">Save and add another</button>
-  </form>
-</p>
 {% endif %}
 {% endblock %}

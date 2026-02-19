@@ -46,10 +46,7 @@ def parse_row(row: dict, index: int) -> dict:
         net_change = (cashout or Decimal(0)) - (buyin or Decimal(0))
     if net_change is None:
         err.append("Net change required or provide buyin/cashout")
-    if player_id and net_change is not None and buyin is not None and cashout is not None:
-        computed = (cashout or Decimal(0)) - (buyin or Decimal(0))
-        if abs((net_change or Decimal(0)) - computed) > BALANCE_EPSILON:
-            err.append("Net doesn't match cashout - buyin")
+    # Do not require net_change to match cashout - buyin; allow discrepancy (tracked as total discrepancy).
     return {
         "player_id": player_id,
         "raw_name": raw_name,
@@ -111,8 +108,7 @@ def parse_game_form(form_data: dict, row_prefix: str = "rows") -> dict:
     for i, r in enumerate(rows):
         if r["errors"]:
             errors.extend([f"Row {i+1}: {e}" for e in r["errors"]])
-    if not balanced and not (force_save and force_reason):
-        errors.append(f"Game does not balance (sum = {sum_net:.2f}). Use Force Save with a reason to override.")
+    # Allow proceeding with discrepancy; reason is collected on confirm page if saving unbalanced.
 
     return {
         "played_at": played_at,
@@ -136,7 +132,6 @@ def parse_multi_game_form(form_data: dict) -> dict:
         errors: list str
     }
     """
-    played_at = _parse_date(form_data.get("played_at"))
     force_save = form_data.get("force_save") in ("1", "on", "true", "yes")
     force_reason = (form_data.get("force_reason") or "").strip() or None
 
@@ -157,11 +152,12 @@ def parse_multi_game_form(form_data: dict) -> dict:
 
     games_out = []
     errors = []
-    if not played_at:
-        errors.append("Played at (date) is required")
 
     for g in sorted(game_indices):
         prefix = f"games[{g}]"
+        played_at = _parse_date(form_data.get(f"{prefix}[played_at]"))
+        if not played_at:
+            errors.append(f"Game {g + 1}: date is required")
         source_image_path_or_url = (form_data.get(f"{prefix}[source_image_path_or_url]") or "").strip() or None
         row_prefix = f"games[{g}][rows]"
         rows_raw: dict[int, dict] = {}
@@ -188,10 +184,10 @@ def parse_multi_game_form(form_data: dict) -> dict:
         for i, r in enumerate(rows):
             if r["errors"]:
                 errors.extend([f"{label} row {i + 1}: {e}" for e in r["errors"]])
-        if not balanced and not (force_save and force_reason):
-            errors.append(f"{label} does not balance (sum = {sum_net:.2f}). Use Force Save with a reason to override.")
+        # Allow proceeding with discrepancy; reason is collected on confirm page if saving unbalanced.
         games_out.append({
             "source_image_path_or_url": source_image_path_or_url,
+            "played_at": played_at,
             "force_save": force_save,
             "force_reason": force_reason,
             "rows": rows,
@@ -199,8 +195,10 @@ def parse_multi_game_form(form_data: dict) -> dict:
             "delta": sum_net,
             "balanced": balanced,
         })
+    # Top-level played_at for redirects / backward compat: first game's date
+    first_played_at = games_out[0]["played_at"] if games_out else None
     return {
-        "played_at": played_at,
+        "played_at": first_played_at,
         "games": games_out,
         "errors": errors,
     }

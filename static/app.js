@@ -38,6 +38,9 @@
         if (continueBtn && continueBtn.textContent.indexOf('Continue to Confirm') !== -1) {
           continueBtn.addEventListener('click', function (e) {
             e.preventDefault();
+            // Clear any previous validation message
+            var validationMsg = document.getElementById('review-validation-message');
+            if (validationMsg) validationMsg.remove();
             if (reviewForm.checkValidity()) {
               showLoading('Continuing to confirm…');
               reviewForm.submit();
@@ -45,9 +48,18 @@
               reviewForm.reportValidity();
               var firstInvalid = reviewForm.querySelector(':invalid');
               if (firstInvalid) {
-                firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 firstInvalid.focus();
               }
+              // Show a visible message so user knows why the button didn't submit
+              var msg = document.createElement('p');
+              msg.id = 'review-validation-message';
+              msg.setAttribute('role', 'alert');
+              msg.className = 'error';
+              msg.style.marginTop = '1rem';
+              msg.style.marginBottom = '0';
+              msg.textContent = 'Please fix the highlighted field(s) above: assign a player to every row and fill any required fields, then try again.';
+              continueBtn.closest('div').appendChild(msg);
             }
           });
         }
@@ -56,13 +68,20 @@
     var confirmForm = document.getElementById('confirm-form');
     if (confirmForm) {
       confirmForm.addEventListener('submit', function () {
-        showLoading('Saving game…');
+        showLoading('Uploading game…');
       });
     }
-    var saveAddAnother = document.getElementById('save-add-another');
-    if (saveAddAnother) {
-      saveAddAnother.addEventListener('submit', function () {
-        showLoading('Saving game…');
+    // "Save and add another" submits the same form with add_another=1 (one master form, one reason field)
+    var saveAddAnotherBtn = document.getElementById('save-add-another-btn');
+    if (saveAddAnotherBtn && confirmForm) {
+      saveAddAnotherBtn.addEventListener('click', function () {
+        if (!confirmForm.checkValidity()) {
+          confirmForm.reportValidity();
+          return;
+        }
+        confirmForm.action = confirmForm.action.replace(/\?.*$/, '') + '?add_another=1';
+        showLoading('Uploading game…');
+        confirmForm.submit();
       });
     }
   }

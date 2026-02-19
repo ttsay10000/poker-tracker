@@ -76,13 +76,20 @@ async def game_list(request: Request):
         return _redirect_login()
     with Session(engine) as session:
         games = list(session.exec(select(Game).order_by(Game.played_at.desc())).all())
-        # Load entry count and balanced per game
+        # Load entry count, balanced, sum_net per game; total discrepancy from unbalanced games
         game_list_data = []
+        total_discrepancy = Decimal(0)
         for g in games:
             entries = list(session.exec(select(GameEntry).where(GameEntry.game_id == g.id)).all())
             total = sum(e.net_change for e in entries)
-            game_list_data.append({"game": g, "entry_count": len(entries), "balanced": abs(total) <= BALANCE_EPSILON})
-    return templates.TemplateResponse("game_list.html", {"request": request, "game_list_data": game_list_data})
+            balanced = abs(total) <= BALANCE_EPSILON
+            if not balanced:
+                total_discrepancy += total
+            game_list_data.append({"game": g, "entry_count": len(entries), "balanced": balanced, "sum_net": total})
+    return templates.TemplateResponse(
+        "game_list.html",
+        {"request": request, "game_list_data": game_list_data, "total_discrepancy": total_discrepancy},
+    )
 
 
 # ---- Legacy redirects (single "Add game" flow now) ----
@@ -260,18 +267,21 @@ async def new_game_post(request: Request):
             except Exception:
                 pass
             sum_net = sum((_row_net(r) for r in rows), Decimal(0))
+            game_date_iso = played_at_str or (result.get("suggested_played_at") if result else "") or ""
             games_for_review.append({
                 "source_image_path_or_url": source_image_path_or_url_combined,
                 "rows": _rows_for_template(rows),
                 "sum_net": sum_net,
                 "balanced": abs(sum_net) <= BALANCE_EPSILON,
                 "extracted_from_screenshot": bool(rows and (rows[0].get("raw_name") or rows[0].get("net_change"))),
+                "played_at_iso": game_date_iso,
             })
         elif len(saved_paths) > 1:
             # One game per screenshot
             for path in saved_paths:
                 name = path.name
                 url = f"/uploads/{name}"
+                result = None
                 try:
                     result = extract_game(
                         image_paths=[path],
@@ -285,15 +295,18 @@ async def new_game_post(request: Request):
                 if not rows:
                     rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
                 sum_net = sum((_row_net(r) for r in rows), Decimal(0))
+                game_date_iso = (result.get("suggested_played_at") if result else "") or played_at_str or ""
                 games_for_review.append({
                     "source_image_path_or_url": url,
                     "rows": _rows_for_template(rows),
                     "sum_net": sum_net,
                     "balanced": abs(sum_net) <= BALANCE_EPSILON,
                     "extracted_from_screenshot": bool(rows and (rows[0].get("raw_name") or rows[0].get("net_change"))),
+                    "played_at_iso": game_date_iso,
                 })
         else:
             rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+            result = None
             try:
                 result = extract_game(
                     notes=notes or None,
@@ -315,12 +328,14 @@ async def new_game_post(request: Request):
             except Exception:
                 pass
             sum_net = sum((_row_net(r) for r in rows), Decimal(0))
+            game_date_iso = played_at_str or (result.get("suggested_played_at") if result else "") or ""
             games_for_review.append({
                 "source_image_path_or_url": source_image_path_or_url or "",
                 "rows": _rows_for_template(rows),
                 "sum_net": sum_net,
                 "balanced": abs(sum_net) <= BALANCE_EPSILON,
                 "extracted_from_screenshot": bool(rows and (rows[0].get("raw_name") or rows[0].get("net_change"))),
+                "played_at_iso": game_date_iso,
             })
     else:
         rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
@@ -330,6 +345,7 @@ async def new_game_post(request: Request):
             "sum_net": Decimal(0),
             "balanced": True,
             "extracted_from_screenshot": False,
+            "played_at_iso": played_at_str or "",
         })
 
     errors_list = []
@@ -395,6 +411,7 @@ async def review_post(request: Request):
                     "sum_net": g["sum_net"],
                     "balanced": g["balanced"],
                     "extracted_from_screenshot": False,
+                    "played_at_iso": g["played_at"].strftime("%Y-%m-%d") if g.get("played_at") else "",
                 }
                 for g in data["games"]
             ]
@@ -492,6 +509,7 @@ async def save_post(request: Request, add_another: str = ""):
                     "sum_net": g["sum_net"],
                     "balanced": g["balanced"],
                     "extracted_from_screenshot": False,
+                    "played_at_iso": g["played_at"].strftime("%Y-%m-%d") if g.get("played_at") else "",
                 }
                 for g in data["games"]
             ]
@@ -510,12 +528,30 @@ async def save_post(request: Request, add_another: str = ""):
                     "edit_mode": False,
                 },
             )
+        any_unbalanced = any(not g["balanced"] for g in data["games"])
+        force_save = fd.get("force_save") in ("1", "on", "true", "yes")
+        force_reason = (fd.get("force_reason") or "").strip()
+        if any_unbalanced and not (force_save and force_reason):
+            with Session(engine) as session:
+                players = get_active_players(session)
+            player_names = {p.id: p.name for p in players}
+            return templates.TemplateResponse(
+                "game_confirm.html",
+                {
+                    "request": request,
+                    "parsed": data,
+                    "players": players,
+                    "player_names": player_names,
+                    "game_id": None,
+                    "confirm_error": "Please provide a reason for the discrepancy to save.",
+                },
+            )
         with Session(engine) as session:
             for g in data["games"]:
                 _resolve_new_players(session, g["rows"])
             for g in data["games"]:
                 game = Game(
-                    played_at=data["played_at"],
+                    played_at=g["played_at"],
                     source_image_path_or_url=g["source_image_path_or_url"],
                 )
                 session.add(game)
@@ -565,6 +601,21 @@ async def save_post(request: Request, add_another: str = ""):
                 "force_save": data["force_save"],
                 "force_reason": data["force_reason"] or "",
                 "edit_mode": False,
+            },
+        )
+    if not data["balanced"] and not (data["force_save"] and (data["force_reason"] or "").strip()):
+        with Session(engine) as session:
+            players = get_active_players(session)
+        player_names = {p.id: p.name for p in players}
+        return templates.TemplateResponse(
+            "game_confirm.html",
+            {
+                "request": request,
+                "parsed": data,
+                "players": players,
+                "player_names": player_names,
+                "game_id": None,
+                "confirm_error": "Please provide a reason for the discrepancy to save.",
             },
         )
     with Session(engine) as session:
