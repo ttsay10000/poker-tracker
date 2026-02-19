@@ -130,6 +130,7 @@
             clone.classList.remove('row-template');
             clone.style.display = '';
             clone.querySelectorAll('input, select').forEach(function (el) {
+              el.removeAttribute('disabled');
               if (el.name) {
                 el.name = el.name.replace(/__INDEX__/g, nextIndex);
               }
@@ -166,6 +167,7 @@
         clone.classList.remove('row-template');
         clone.style.display = '';
         clone.querySelectorAll('input, select').forEach(function (el) {
+          el.removeAttribute('disabled');
           if (el.name) {
             el.name = el.name.replace(/__INDEX__/g, nextIndex);
           }

@@ -56,9 +56,9 @@
       </thead>
       <tbody>
         <tr class="row-template" style="display:none;">
-          <td><input type="text" name="rows[__INDEX__][raw_name]" value="" placeholder="Name from screenshot"></td>
+          <td><input type="text" name="rows[__INDEX__][raw_name]" value="" placeholder="Name from screenshot" disabled></td>
           <td>
-            <select name="rows[__INDEX__][player_id]" class="player-select" required data-player-options>
+            <select name="rows[__INDEX__][player_id]" class="player-select" required data-player-options disabled>
               <option value="">— Select player —</option>
               {% for p in players %}
               <option value="{{ p.id }}">{{ p.name }}</option>
@@ -66,10 +66,10 @@
               <option value="__new__">➕ Add new player</option>
             </select>
           </td>
-          <td><input type="number" step="0.01" name="rows[__INDEX__][buyin]" value="" class="num"></td>
-          <td><input type="number" step="0.01" name="rows[__INDEX__][cashout]" value="" class="num"></td>
-          <td><input type="number" step="0.01" name="rows[__INDEX__][final_stack]" value="" class="num"></td>
-          <td><input type="number" step="0.01" name="rows[__INDEX__][net_change]" value="" class="num" required></td>
+          <td><input type="number" step="0.01" name="rows[__INDEX__][buyin]" value="" class="num" disabled></td>
+          <td><input type="number" step="0.01" name="rows[__INDEX__][cashout]" value="" class="num" disabled></td>
+          <td><input type="number" step="0.01" name="rows[__INDEX__][final_stack]" value="" class="num" disabled></td>
+          <td><input type="number" step="0.01" name="rows[__INDEX__][net_change]" value="" class="num" required disabled></td>
           <td><button type="button" class="remove-row btn btn-small btn-danger">Remove</button></td>
         </tr>
         {% for r in rows %}
@@ -159,9 +159,9 @@
         </thead>
         <tbody data-game-index="{{ g_idx }}">
           <tr class="row-template" style="display:none;">
-            <td><input type="text" name="games[{{ g_idx }}][rows][__INDEX__][raw_name]" value="" placeholder="Name from screenshot"></td>
+            <td><input type="text" name="games[{{ g_idx }}][rows][__INDEX__][raw_name]" value="" placeholder="Name from screenshot" disabled></td>
             <td>
-              <select name="games[{{ g_idx }}][rows][__INDEX__][player_id]" class="player-select" required data-player-options>
+              <select name="games[{{ g_idx }}][rows][__INDEX__][player_id]" class="player-select" required data-player-options disabled>
                 <option value="">— Select player —</option>
                 {% for p in players %}
                 <option value="{{ p.id }}">{{ p.name }}</option>
@@ -169,10 +169,10 @@
                 <option value="__new__">➕ Add new player</option>
               </select>
             </td>
-            <td><input type="number" step="0.01" name="games[{{ g_idx }}][rows][__INDEX__][buyin]" value="" class="num"></td>
-            <td><input type="number" step="0.01" name="games[{{ g_idx }}][rows][__INDEX__][cashout]" value="" class="num"></td>
-            <td><input type="number" step="0.01" name="games[{{ g_idx }}][rows][__INDEX__][final_stack]" value="" class="num"></td>
-            <td><input type="number" step="0.01" name="games[{{ g_idx }}][rows][__INDEX__][net_change]" value="" class="num" required></td>
+            <td><input type="number" step="0.01" name="games[{{ g_idx }}][rows][__INDEX__][buyin]" value="" class="num" disabled></td>
+            <td><input type="number" step="0.01" name="games[{{ g_idx }}][rows][__INDEX__][cashout]" value="" class="num" disabled></td>
+            <td><input type="number" step="0.01" name="games[{{ g_idx }}][rows][__INDEX__][final_stack]" value="" class="num" disabled></td>
+            <td><input type="number" step="0.01" name="games[{{ g_idx }}][rows][__INDEX__][net_change]" value="" class="num" required disabled></td>
             <td><button type="button" class="remove-row btn btn-small btn-danger">Remove</button></td>
           </tr>
           {% for r in game.rows %}
