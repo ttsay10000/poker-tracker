@@ -78,6 +78,8 @@ def player_core_stats(
             "avg_cashout": None,
             "avg_final_stack": None,
             "avg_roi_per_game": None,
+            "avg_when_winning": None,
+            "avg_when_losing": None,
         }
     game_ids = [g.id for g in games]
     entries = _entries_for_player(session, player_id, game_ids)
@@ -109,6 +111,11 @@ def player_core_stats(
             roi_list.append(float(e.net_change / e.buyin))
     avg_roi = Decimal(str(sum(roi_list) / len(roi_list))) if roi_list else None
 
+    winning_nets = [n for n in nets if n > 0]
+    losing_nets = [n for n in nets if n < 0]
+    avg_when_winning = (sum(winning_nets) / len(winning_nets)) if winning_nets else None
+    avg_when_losing = (sum(losing_nets) / len(losing_nets)) if losing_nets else None
+
     return {
         "games_played": games_played,
         "wins": wins,
@@ -125,6 +132,8 @@ def player_core_stats(
         "avg_cashout": avg_cashout,
         "avg_final_stack": avg_final_stack,
         "avg_roi_per_game": avg_roi,
+        "avg_when_winning": avg_when_winning,
+        "avg_when_losing": avg_when_losing,
     }
 
 
@@ -212,17 +221,19 @@ def chart_data_single_player(
     return {"labels": labels, "data": data}
 
 
-# ---- Recent games (last N for player) ----
+# ---- All games for player (chronological: most recent first) ----
 def recent_games_for_player(
     session: Session,
     player_id: str,
-    limit: int = 10,
+    limit: Optional[int] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
 ) -> list[dict]:
-    """Last N games for this player with date, net_change, buyin, cashout, lineup size."""
+    """Games for this player with date, net_change, buyin, cashout, lineup size. Most recent first. limit=None = all."""
     games = _game_query(session, date_from, date_to, player_id)
-    games = list(reversed(games))[-limit:]
+    games = list(reversed(games))  # most recent first
+    if limit is not None:
+        games = games[:limit]
     if not games:
         return []
     game_ids = [g.id for g in games]
@@ -234,7 +245,7 @@ def recent_games_for_player(
         c = session.exec(select(func.count(GameEntry.id)).where(GameEntry.game_id == gid)).one()
         counts[gid] = c or 0
     out = []
-    for g in reversed(games):
+    for g in games:
         e = by_game.get(g.id)
         if not e:
             continue

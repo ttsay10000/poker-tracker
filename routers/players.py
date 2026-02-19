@@ -91,7 +91,7 @@ async def player_profile(
         core = player_core_stats(session, player_id, d_from, d_to)
         streaks = player_streaks(session, player_id, d_from, d_to)
         chart = chart_data_single_player(session, player_id, d_from, d_to)
-        recent = recent_games_for_player(session, player_id, 10, d_from, d_to)
+        recent = recent_games_for_player(session, player_id, limit=None, date_from=d_from, date_to=d_to)
         with_x = lineup_with_x_stats(session, player_id, d_from, d_to, min_sample)
         rivalry = rivalry_badges_windows(session, player_id, d_from, d_to, min_sample)
         monthly = rivalry_monthly_counts(session, player_id, min_games_in_month=2, min_sample_month=2)
