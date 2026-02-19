@@ -12,14 +12,16 @@ logger = logging.getLogger(__name__)
 
 _EXTRACT_PROMPT_BASE = """Extract poker game results into a single JSON object with two fields:
 
-1) suggested_played_at: If the game date is visible in the image(s), text, or in the file name(s) (e.g. a date in the filename like 2025-02-15 or 20250215), set this to YYYY-MM-DD. If not visible or unclear, set to null.
+1) suggested_played_at: If the game date is visible in the image(s), text, or in the file name(s) (e.g. "Poker 4/1" or "4/1" = April 1 → use 2025-04-01 or the appropriate year; 2025-02-15, 20250215), set this to YYYY-MM-DD. If not visible or unclear, set to null.
 
 2) players: An array of player rows. For each row return:
 - raw_name: the name as shown (e.g. from the app or list)
 - buyin: number only (e.g. 20 or 20.00)
 - cashout: number only (buy-out / cashout)
-- final_stack: number if visible, else empty
-- net_change: net profit/loss as a number (negative if loss)"""
+- final_stack: number if visible, else empty string
+- net_change: net profit/loss as a number (negative if loss; drop the leading + for profits, e.g. +41.25 → 41.25)
+
+If the notes use the format "Name — buyin | cashout | +net or -net" (em dash, pipe-separated), parse each line into one player row with raw_name, buyin, cashout, and net_change."""
 
 _EXTRACT_PROMPT_SUFFIX_NO_HINTS = """
 
@@ -62,7 +64,7 @@ def _encode_image(path: Path) -> Tuple[str, str]:
 def _parse_amount(val: Any) -> str:
     if val is None:
         return ""
-    s = str(val).strip().replace(",", "").replace("$", "")
+    s = str(val).strip().replace(",", "").replace("$", "").lstrip("+")
     try:
         Decimal(s)
         return s
@@ -190,7 +192,7 @@ def extract_game(
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
-            max_tokens=1024,
+            max_tokens=4096,
         )
         text = (response.choices[0].message.content or "").strip()
         return _parse_response(text)
