@@ -157,7 +157,16 @@
   }
 
   // Player select: "Add new player" creates player from Raw Name in same row; refresh button fetches latest players
+  // Also: sync server-rendered selections (e.g. from LLM) so checkValidity() recognizes them as filled
   function initPlayerSelects() {
+    // Ensure server-pre-selected player options are explicitly set on load so form validation treats them as filled
+    document.querySelectorAll('.player-select[data-player-options]').forEach(function (sel) {
+      var selectedOpt = sel.querySelector('option[selected]');
+      if (selectedOpt && selectedOpt.value && selectedOpt.value !== '') {
+        sel.value = selectedOpt.value;
+      }
+    });
+
     var refreshBtn = document.getElementById('refresh-players');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', function () {
