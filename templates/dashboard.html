@@ -8,11 +8,9 @@
   <a href="/games" class="btn btn-secondary">View / Edit games</a>
   <a href="/players/new" class="btn btn-secondary">New player</a>
   <a href="/settlements/record-batch" class="btn btn-secondary">Record payments (multiple)</a>
-  {% if total_outstanding != 0 %}
   <form method="post" action="/settlements/settled-up-all" class="dashboard-action-form" style="display:inline;" onsubmit="return confirm({{ ('Record a settlement for every player that zeroes out their outstanding (total $' ~ '{:,.2f}'.format(total_outstanding) ~ ')?') | tojson }});">
     <button type="submit" class="btn btn-secondary">Settled up (all)</button>
   </form>
-  {% endif %}
 </div>
 <p class="muted" style="margin-top:0.25rem;">You can edit any game from <a href="/games">Games</a> (View / Edit) or from a player’s recent games; edit players via Edit on the table or from their profile.</p>
 
