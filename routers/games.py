@@ -1,4 +1,5 @@
 """Games: list, manual new, review, confirm, save; edit saved game."""
+import logging
 from datetime import datetime
 from decimal import Decimal
 
@@ -18,6 +19,7 @@ from models import Game, GameEntry, Player
 from services import get_active_players, has_any_settlements, settlements_affect_players, normalize_name
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
@@ -69,6 +71,15 @@ def _rows_for_template(rows: list) -> list:
     return out
 
 
+def _game_totals_key(total_buyins: Decimal, total_cashouts: Decimal, sum_net: Decimal) -> tuple:
+    """Normalized key for duplicate detection (round to 2 decimals)."""
+    return (
+        round(float(total_buyins), 2),
+        round(float(total_cashouts), 2),
+        round(float(sum_net), 2),
+    )
+
+
 # ---- List ----
 @router.get("", response_class=HTMLResponse)
 async def game_list(request: Request):
@@ -76,16 +87,35 @@ async def game_list(request: Request):
         return _redirect_login()
     with Session(engine) as session:
         games = list(session.exec(select(Game).order_by(Game.played_at.desc())).all())
-        # Load entry count, balanced, sum_net per game; total discrepancy from unbalanced games
+        # Per-game: entry count, balanced, sum_net, total_buyins, total_cashouts
         game_list_data = []
         total_discrepancy = Decimal(0)
+        totals_keys: list[tuple] = []
         for g in games:
             entries = list(session.exec(select(GameEntry).where(GameEntry.game_id == g.id)).all())
-            total = sum(e.net_change for e in entries)
-            balanced = abs(total) <= BALANCE_EPSILON
+            total_net = sum(e.net_change for e in entries)
+            total_buyins = sum((e.buyin or Decimal(0)) for e in entries)
+            total_cashouts = sum((e.cashout or Decimal(0)) for e in entries)
+            balanced = abs(total_net) <= BALANCE_EPSILON
             if not balanced:
-                total_discrepancy += total
-            game_list_data.append({"game": g, "entry_count": len(entries), "balanced": balanced, "sum_net": total})
+                total_discrepancy += total_net
+            key = _game_totals_key(total_buyins, total_cashouts, total_net)
+            totals_keys.append(key)
+            game_list_data.append({
+                "game": g,
+                "entry_count": len(entries),
+                "balanced": balanced,
+                "sum_net": total_net,
+                "total_buyins": total_buyins,
+                "total_cashouts": total_cashouts,
+            })
+        # Flag games that share the same (buyins, cashouts, net) as another (potential duplicate)
+        key_counts: dict[tuple, int] = {}
+        for k in totals_keys:
+            key_counts[k] = key_counts.get(k, 0) + 1
+        for i, item in enumerate(game_list_data):
+            key = _game_totals_key(item["total_buyins"], item["total_cashouts"], item["sum_net"])
+            item["possible_duplicate"] = key_counts.get(key, 0) > 1
     return templates.TemplateResponse(
         "game_list.html",
         {"request": request, "game_list_data": game_list_data, "total_discrepancy": total_discrepancy},
@@ -143,7 +173,8 @@ async def new_game_post(request: Request):
             max_part_size=MAX_UPLOAD_SIZE_BYTES,
             max_files=50,
         )
-    except Exception:
+    except Exception as e:
+        logger.exception("Add game: invalid form data: %s", e)
         return templates.TemplateResponse(
             "game_new.html",
             {
@@ -192,10 +223,12 @@ async def new_game_post(request: Request):
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "wb") as f:
                 f.write(body)
-        except OSError:
+        except OSError as e:
+            logger.warning("Add game: could not save upload %s: %s", original_filename, e)
             upload_save_error = True
             continue
-        except Exception:
+        except Exception as e:
+            logger.warning("Add game: could not save upload %s: %s", original_filename, e, exc_info=True)
             upload_save_error = True
             continue
         saved_paths.append(path)
@@ -207,7 +240,8 @@ async def new_game_post(request: Request):
     try:
         with Session(engine) as session:
             players = get_active_players(session)
-    except Exception:
+    except Exception as e:
+        logger.exception("Add game: database error loading players: %s", e)
         return templates.TemplateResponse(
             "game_new.html",
             {
@@ -253,11 +287,47 @@ async def new_game_post(request: Request):
     screenshot_grouping = (form.get("screenshot_grouping") or "").strip() or "per_screenshot"
 
     if OPENAI_API_KEY and (notes or saved_paths):
-        if len(saved_paths) > 1 and screenshot_grouping == "one_game":
+        # Notes only (no screenshots): always one game from notes, regardless of "one game per screenshot" setting
+        if notes and not saved_paths:
+            rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+            result = None
+            try:
+                result = extract_game(
+                    notes=notes,
+                    image_paths=None,
+                    image_display_names=None,
+                    player_names=player_names,
+                    alias_map=PLAYER_ALIASES or {},
+                )
+                extracted = result.get("rows") or []
+                if extracted:
+                    rows = _extract_rows(extracted, name_to_id)
+                if not played_at and result and result.get("suggested_played_at"):
+                    try:
+                        from datetime import date as date_type
+                        d = date_type.fromisoformat(result["suggested_played_at"])
+                        played_at = datetime.combine(d, datetime.min.time())
+                        played_at_str = result["suggested_played_at"]
+                    except (ValueError, TypeError):
+                        pass
+            except Exception as e:
+                logger.warning("Add game: extraction failed (notes only): %s", e, exc_info=True)
+            sum_net = sum((_row_net(r) for r in rows), Decimal(0))
+            game_date_iso = played_at_str or (result.get("suggested_played_at") if result else "") or ""
+            games_for_review.append({
+                "source_image_path_or_url": "",
+                "rows": _rows_for_template(rows),
+                "sum_net": sum_net,
+                "balanced": abs(sum_net) <= BALANCE_EPSILON,
+                "extracted_from_screenshot": bool(rows and (rows[0].get("raw_name") or rows[0].get("net_change"))),
+                "played_at_iso": game_date_iso,
+            })
+        elif len(saved_paths) > 1 and screenshot_grouping == "one_game":
             # All screenshots = one game: single extraction with all images
             all_urls = [f"/uploads/{p.name}" for p in saved_paths]
             source_image_path_or_url_combined = ",".join(all_urls)
             rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+            result = None
             try:
                 result = extract_game(
                     notes=notes or None,
@@ -269,7 +339,7 @@ async def new_game_post(request: Request):
                 extracted = result.get("rows") or []
                 if extracted:
                     rows = _extract_rows(extracted, name_to_id)
-                if not played_at and result.get("suggested_played_at"):
+                if not played_at and result and result.get("suggested_played_at"):
                     try:
                         from datetime import date as date_type
                         d = date_type.fromisoformat(result["suggested_played_at"])
@@ -277,8 +347,8 @@ async def new_game_post(request: Request):
                         played_at_str = result["suggested_played_at"]
                     except (ValueError, TypeError):
                         pass
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Add game: extraction failed (one_game mode): %s", e, exc_info=True)
             sum_net = sum((_row_net(r) for r in rows), Decimal(0))
             game_date_iso = played_at_str or (result.get("suggested_played_at") if result else "") or ""
             games_for_review.append({
@@ -305,7 +375,8 @@ async def new_game_post(request: Request):
                     )
                     extracted = result.get("rows") or []
                     rows = _extract_rows(extracted, name_to_id) if extracted else []
-                except Exception:
+                except Exception as e:
+                    logger.warning("Add game: extraction failed for screenshot %s: %s", name, e, exc_info=True)
                     rows = []
                 if not rows:
                     rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
@@ -341,8 +412,8 @@ async def new_game_post(request: Request):
                         played_at_str = result["suggested_played_at"]
                     except (ValueError, TypeError):
                         pass
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Add game: extraction failed (single screenshot/notes): %s", e, exc_info=True)
             sum_net = sum((_row_net(r) for r in rows), Decimal(0))
             game_date_iso = played_at_str or (result.get("suggested_played_at") if result else "") or ""
             games_for_review.append({
@@ -376,7 +447,12 @@ async def new_game_post(request: Request):
             for r in rows_for_last
         )
         if not has_any_filled:
-            errors_list.append("Could not extract player rows from your notes/screenshots. You can fill in the game manually below.")
+            if notes and not saved_paths:
+                errors_list.append("Could not extract player rows from your notes. You can fill in the game manually below.")
+            elif saved_paths and not notes:
+                errors_list.append("Could not extract from your screenshot(s)—they may not have loaded or the format wasn't recognized. You can fill in the game manually below.")
+            else:
+                errors_list.append("Could not extract player rows from your notes or screenshot(s). You can fill in the game manually below.")
     if upload_size_error:
         errors_list.append("Some files were too large (max 10 MB per file) and were skipped.")
     if upload_save_error:
@@ -396,7 +472,8 @@ async def new_game_post(request: Request):
                 "force_reason": "",
             },
         )
-    except Exception:
+    except Exception as e:
+        logger.exception("Add game: failed to render review page: %s", e)
         return templates.TemplateResponse(
             "game_new.html",
             {
@@ -419,14 +496,16 @@ async def review_post(request: Request):
     try:
         form = await request.form()
         fd = _form_dict(form)
-    except Exception:
+    except Exception as e:
+        logger.exception("Review: invalid form: %s", e)
         return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
     with Session(engine) as session:
         players = get_active_players(session)
     if _form_has_multi_game(fd):
         try:
             data = parse_multi_game_form(fd)
-        except Exception:
+        except Exception as e:
+            logger.exception("Review: parse multi-game form failed: %s", e)
             return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
         with Session(engine) as session:
             for g in data["games"]:
@@ -473,7 +552,8 @@ async def review_post(request: Request):
         )
     try:
         data = parse_game_form(fd)
-    except Exception:
+    except Exception as e:
+        logger.exception("Review: parse game form failed: %s", e)
         return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
     with Session(engine) as session:
         _resolve_new_players(session, data["rows"])
@@ -522,12 +602,14 @@ async def save_post(request: Request, add_another: str = ""):
     try:
         form = await request.form()
         fd = _form_dict(form)
-    except Exception:
+    except Exception as e:
+        logger.exception("Save game: invalid form: %s", e)
         return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
     if _form_has_multi_game(fd):
         try:
             data = parse_multi_game_form(fd)
-        except Exception:
+        except Exception as e:
+            logger.exception("Save game: parse multi-game form failed: %s", e)
             return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
         if data["errors"]:
             with Session(engine) as session:
@@ -576,30 +658,34 @@ async def save_post(request: Request, add_another: str = ""):
                     "confirm_error": "Please provide a reason for the discrepancy to save.",
                 },
             )
-        with Session(engine) as session:
-            for g in data["games"]:
-                _resolve_new_players(session, g["rows"])
-            for g in data["games"]:
-                game = Game(
-                    played_at=g["played_at"],
-                    source_image_path_or_url=g["source_image_path_or_url"],
-                )
-                session.add(game)
-                session.flush()
-                for r in g["rows"]:
-                    if not r["player_id"] or r["net_change"] is None:
-                        continue
-                    entry = GameEntry(
-                        game_id=game.id,
-                        player_id=r["player_id"],
-                        raw_name=r["raw_name"],
-                        buyin=r["buyin"],
-                        cashout=r["cashout"],
-                        final_stack=r["final_stack"],
-                        net_change=r["net_change"],
+        try:
+            with Session(engine) as session:
+                for g in data["games"]:
+                    _resolve_new_players(session, g["rows"])
+                for g in data["games"]:
+                    game = Game(
+                        played_at=g["played_at"],
+                        source_image_path_or_url=g["source_image_path_or_url"],
                     )
-                    session.add(entry)
-            session.commit()
+                    session.add(game)
+                    session.flush()
+                    for r in g["rows"]:
+                        if not r["player_id"] or r["net_change"] is None:
+                            continue
+                        entry = GameEntry(
+                            game_id=game.id,
+                            player_id=r["player_id"],
+                            raw_name=r["raw_name"],
+                            buyin=r["buyin"],
+                            cashout=r["cashout"],
+                            final_stack=r["final_stack"],
+                            net_change=r["net_change"],
+                        )
+                        session.add(entry)
+                session.commit()
+        except Exception as e:
+            logger.exception("Save game: failed to save %d game(s) to database: %s", len(data["games"]), e)
+            return RedirectResponse(url="/games/new?flash=Save+failed.+Please+try+again.", status_code=302)
         n_games = len(data["games"])
         redirect_url = f"/games/saved?n={n_games}"
         if add_another and data["played_at"]:
@@ -607,7 +693,8 @@ async def save_post(request: Request, add_another: str = ""):
         return RedirectResponse(url=redirect_url, status_code=302)
     try:
         data = parse_game_form(fd)
-    except Exception:
+    except Exception as e:
+        logger.exception("Save game: parse game form failed: %s", e)
         return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
     if data["errors"]:
         with Session(engine) as session:
@@ -648,28 +735,32 @@ async def save_post(request: Request, add_another: str = ""):
                 "confirm_error": "Please provide a reason for the discrepancy to save.",
             },
         )
-    with Session(engine) as session:
-        _resolve_new_players(session, data["rows"])
-        game = Game(
-            played_at=data["played_at"],
-            source_image_path_or_url=data["source_image_path_or_url"],
-        )
-        session.add(game)
-        session.flush()
-        for r in data["rows"]:
-            if not r["player_id"] or r["net_change"] is None:
-                continue
-            entry = GameEntry(
-                game_id=game.id,
-                player_id=r["player_id"],
-                raw_name=r["raw_name"],
-                buyin=r["buyin"],
-                cashout=r["cashout"],
-                final_stack=r["final_stack"],
-                net_change=r["net_change"],
+    try:
+        with Session(engine) as session:
+            _resolve_new_players(session, data["rows"])
+            game = Game(
+                played_at=data["played_at"],
+                source_image_path_or_url=data["source_image_path_or_url"],
             )
-            session.add(entry)
-        session.commit()
+            session.add(game)
+            session.flush()
+            for r in data["rows"]:
+                if not r["player_id"] or r["net_change"] is None:
+                    continue
+                entry = GameEntry(
+                    game_id=game.id,
+                    player_id=r["player_id"],
+                    raw_name=r["raw_name"],
+                    buyin=r["buyin"],
+                    cashout=r["cashout"],
+                    final_stack=r["final_stack"],
+                    net_change=r["net_change"],
+                )
+                session.add(entry)
+            session.commit()
+    except Exception as e:
+        logger.exception("Save game: failed to save game to database: %s", e)
+        return RedirectResponse(url="/games/new?flash=Save+failed.+Please+try+again.", status_code=302)
     redirect_url = "/games/saved?n=1"
     if add_another and data["played_at"]:
         redirect_url = f"/games/new?date={data['played_at'].strftime('%Y-%m-%d')}&flash=Game+saved"

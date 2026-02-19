@@ -17,7 +17,15 @@
     {% for item in game_list_data %}
     <tr data-played-at="{{ item.game.played_at.strftime('%Y-%m-%d') if item.game.played_at else '' }}" data-created-at="{{ item.game.created_at.strftime('%Y-%m-%d %H:%M') if item.game.created_at else '' }}">
       <td>{{ item.game.played_at.strftime('%Y-%m-%d') }}</td>
-      <td>{{ item.entry_count }}</td>
+      <td>
+        {{ item.entry_count }}
+        <div class="game-totals" style="font-size:0.75rem; color:var(--muted, #666); margin-top:0.15rem;">
+          Buyins {{ "${:,.2f}".format(item.total_buyins) }} · Cashouts {{ "${:,.2f}".format(item.total_cashouts) }} · Net {{ "${:,.2f}".format(item.sum_net) }}
+        </div>
+        {% if item.possible_duplicate %}
+        <span class="possible-duplicate-flag" style="font-size:0.7rem; color:var(--warning, #e0a000);" title="Another game has the same buyins, cashouts, and net">⚠ Possible duplicate</span>
+        {% endif %}
+      </td>
       <td>{% if item.balanced %}✅{% else %}No{% endif %}</td>
       <td>{{ item.game.created_at.strftime('%Y-%m-%d %H:%M') if item.game.created_at else '—' }}</td>
       <td>
