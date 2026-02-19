@@ -264,8 +264,19 @@
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      layout: {
+        padding: { bottom: 20 }
+      },
       scales: {
-        y: { beginAtZero: true }
+        y: { beginAtZero: true },
+        x: {
+          ticks: {
+            maxRotation: 45,
+            minRotation: 45,
+            maxTicksLimit: 12,
+            autoSkip: true
+          }
+        }
       }
     }
   });

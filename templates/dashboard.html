@@ -11,20 +11,28 @@
 </div>
 <p class="muted" style="margin-top:0.25rem;">You can edit any game from <a href="/games">Games</a> (View / Edit) or from a player’s recent games; edit players via Edit on the table or from their profile.</p>
 
-<form method="get" action="/dashboard" class="filters">
+<form method="get" action="/dashboard" class="filters" id="dashboard-filters">
   <label>Players <span class="muted">(select multiple to compare lines)</span>
-    <select name="players" multiple size="4" style="min-width:140px;">
+    <select name="players" multiple size="4" style="min-width:140px;" id="filter-players">
       {% for p in filter_players %}
-      <option value="{{ p.id }}" {% if p.id in filter_player_ids %}selected{% endif %}>{{ p.name }}</option>
+      <option value="{{ p.id }}" {% if p.harper_crew %}data-harper-crew="1"{% endif %} {% if p.id in filter_player_ids %}selected{% endif %}>{{ p.name }}</option>
       {% endfor %}
     </select>
   </label>
-  <label>From <input type="date" name="date_from" value="{{ filter_date_from }}"></label>
-  <label>To <input type="date" name="date_to" value="{{ filter_date_to }}"></label>
   <label class="filter-checkbox">
-    <input type="checkbox" name="chart_harper_crew_only" value="1" {% if filter_chart_harper_crew_only %}checked{% endif %}>
+    <input type="checkbox" id="filter-all-players" aria-label="Select all players">
+    All players
+  </label>
+  <label class="filter-checkbox">
+    <input type="checkbox" name="chart_harper_crew_only" value="1" id="filter-harper-crew-only" {% if filter_chart_harper_crew_only %}checked{% endif %}>
     Chart: Harper crew only
   </label>
+  <label class="filter-checkbox">
+    <input type="checkbox" name="table_harper_crew_only" value="1" id="filter-table-harper-crew-only" {% if filter_table_harper_crew_only %}checked{% endif %}>
+    Table: Harper crew only
+  </label>
+  <label>From <input type="date" name="date_from" value="{{ filter_date_from }}"></label>
+  <label>To <input type="date" name="date_to" value="{{ filter_date_to }}"></label>
   <button type="submit" class="btn btn-secondary btn-small">Apply</button>
 </form>
 
@@ -54,14 +62,14 @@
     <div class="superlative-item">
       <span class="superlative-label">Most consistent</span>
       <span class="superlative-value">{{ superlatives.most_consistent.player.name }}</span>
-      <span class="superlative-sub">steady results</span>
+      <span class="superlative-sub">{% if superlatives.most_consistent.avg_per_game is not none %}${{ "{:,.2f}".format(superlatives.most_consistent.avg_per_game) }}/game{% else %}—{% endif %}</span>
     </div>
     {% endif %}
     {% if superlatives.most_inconsistent %}
     <div class="superlative-item">
       <span class="superlative-label">Most inconsistent</span>
       <span class="superlative-value">{{ superlatives.most_inconsistent.player.name }}</span>
-      <span class="superlative-sub">swingy results</span>
+      <span class="superlative-sub">{% if superlatives.most_inconsistent.avg_per_game is not none %}${{ "{:,.2f}".format(superlatives.most_inconsistent.avg_per_game) }}/game{% else %}—{% endif %}</span>
     </div>
     {% endif %}
   </div>
@@ -103,19 +111,21 @@
         <span class="badge badge-success">Settled</span>
         {% endif %}
       </td>
-      <td>
-        <a href="/players/{{ r.player.id }}" class="btn btn-small btn-primary">Profile</a>
-        <a href="/players/{{ r.player.id }}/edit" class="btn btn-small btn-secondary">Edit</a>
-        <a href="/settlements/record?player_id={{ r.player.id }}" class="btn btn-small btn-primary">Record payment</a>
-        {% if r.outstanding != 0 %}
-        <form method="post" action="/settlements/settled-up" style="display:inline;" onsubmit="return confirm('Record a settlement that zeroes out {{ r.player.name | e }}&#39;s outstanding (${{ '{:,.2f}'.format(r.outstanding) }})?');">
-          <input type="hidden" name="player_id" value="{{ r.player.id }}">
-          <button type="submit" class="btn btn-small btn-secondary">Settled up</button>
-        </form>
-        {% endif %}
-        {% if r.player.is_active %}
-        <a href="/players/{{ r.player.id }}/deactivate" class="btn btn-small btn-danger">Deactivate</a>
-        {% endif %}
+      <td class="dashboard-actions-cell">
+        <div class="dashboard-row-actions">
+          <a href="/players/{{ r.player.id }}" class="btn btn-small btn-primary">Profile</a>
+          <a href="/players/{{ r.player.id }}/edit" class="btn btn-small btn-secondary">Edit</a>
+          <a href="/settlements/record?player_id={{ r.player.id }}" class="btn btn-small btn-primary">Record payment</a>
+          {% if r.outstanding != 0 %}
+          <form method="post" action="/settlements/settled-up" class="dashboard-row-action-form" onsubmit="return confirm('Record a settlement that zeroes out {{ r.player.name | e }}&#39;s outstanding (${{ '{:,.2f}'.format(r.outstanding) }})?');">
+            <input type="hidden" name="player_id" value="{{ r.player.id }}">
+            <button type="submit" class="btn btn-small btn-secondary">Settled up</button>
+          </form>
+          {% endif %}
+          {% if r.player.is_active %}
+          <a href="/players/{{ r.player.id }}/deactivate" class="btn btn-small btn-danger">Deactivate</a>
+          {% endif %}
+        </div>
       </td>
     </tr>
     {% endfor %}
@@ -126,6 +136,58 @@
 {% endblock %}
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(function () {
+  var form = document.getElementById('dashboard-filters');
+  var playerSelect = document.getElementById('filter-players');
+  var allPlayersCb = document.getElementById('filter-all-players');
+  var harperCrewCb = document.getElementById('filter-harper-crew-only');
+  if (!form || !playerSelect || !allPlayersCb || !harperCrewCb) return;
+
+  var options = playerSelect ? Array.from(playerSelect.options) : [];
+
+  function selectAll() {
+    options.forEach(function (o) { o.selected = true; });
+    allPlayersCb.checked = true;
+  }
+  function deselectAll() {
+    options.forEach(function (o) { o.selected = false; });
+    allPlayersCb.checked = false;
+  }
+  function selectOnlyHarperCrew() {
+    options.forEach(function (o) { o.selected = o.getAttribute('data-harper-crew') === '1'; });
+    allPlayersCb.checked = false;
+  }
+  function syncAllPlayersCheckbox() {
+    var selectedCount = options.filter(function (o) { return o.selected; }).length;
+    allPlayersCb.checked = selectedCount === options.length && options.length > 0;
+  }
+
+  harperCrewCb.addEventListener('change', function () {
+    if (harperCrewCb.checked) {
+      selectOnlyHarperCrew();
+    } else {
+      deselectAll();
+      selectAll();
+    }
+  });
+
+  allPlayersCb.addEventListener('change', function () {
+    if (allPlayersCb.checked) {
+      selectAll();
+    } else {
+      deselectAll();
+    }
+  });
+
+  playerSelect.addEventListener('change', syncAllPlayersCheckbox);
+
+  if (options.length) {
+    syncAllPlayersCheckbox();
+    if (harperCrewCb.checked) selectOnlyHarperCrew();
+  }
+})();
+</script>
 <script>
 (function () {
   var data = {{ chart_data | tojson }};
@@ -151,8 +213,19 @@
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      layout: {
+        padding: { bottom: 20 }
+      },
       scales: {
-        y: { beginAtZero: true }
+        y: { beginAtZero: true },
+        x: {
+          ticks: {
+            maxRotation: 45,
+            minRotation: 45,
+            maxTicksLimit: 12,
+            autoSkip: true
+          }
+        }
       }
     }
   });

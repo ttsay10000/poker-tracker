@@ -3,19 +3,19 @@
 {% block content %}
 <h1>Games</h1>
 <p><a href="/dashboard" class="btn btn-link">← Back to Dashboard</a></p>
-<table>
+<table id="games-table" class="sortable">
   <thead>
     <tr>
-      <th>Date</th>
+      <th class="sortable-th" data-sort="played_at" data-type="date">Date <span class="sort-icon"></span></th>
       <th>Players</th>
       <th>Balanced</th>
-      <th>Created</th>
+      <th class="sortable-th" data-sort="created_at" data-type="date">Created <span class="sort-icon"></span></th>
       <th>Actions</th>
     </tr>
   </thead>
   <tbody>
     {% for item in game_list_data %}
-    <tr>
+    <tr data-played-at="{{ item.game.played_at.strftime('%Y-%m-%d') if item.game.played_at else '' }}" data-created-at="{{ item.game.created_at.strftime('%Y-%m-%d %H:%M') if item.game.created_at else '' }}">
       <td>{{ item.game.played_at.strftime('%Y-%m-%d') }}</td>
       <td>{{ item.entry_count }}</td>
       <td>{% if item.balanced %}✅{% else %}No{% endif %}</td>
@@ -35,4 +35,55 @@
 {% if not game_list_data %}
 <p class="muted">No games yet. <a href="/games/new">Add a game</a>.</p>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var table = document.getElementById('games-table');
+  if (!table) return;
+  var thead = table.querySelector('thead');
+  var tbody = table.querySelector('tbody');
+  var rows = tbody ? Array.from(tbody.querySelectorAll('tr')) : [];
+  var currentSort = { key: null, dir: 1 };
+
+  function getCellValue(row, key) {
+    var val = row.getAttribute('data-' + key.replace(/_/g, '-'));
+    if (val === '' || val === null) return null;
+    return val;
+  }
+
+  function sortBy(key, type) {
+    var dir = currentSort.key === key ? -currentSort.dir : 1;
+    currentSort = { key: key, dir: dir };
+    rows.sort(function (a, b) {
+      var va = getCellValue(a, key);
+      var vb = getCellValue(b, key);
+      if (va === null && vb === null) return 0;
+      if (va === null) return dir;
+      if (vb === null) return -dir;
+      if (type === 'date' || type === 'text') {
+        return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
+      }
+      return (Number(va) - Number(vb)) * dir;
+    });
+    rows.forEach(function (r) { tbody.appendChild(r); });
+    thead.querySelectorAll('.sortable-th').forEach(function (th) {
+      var k = th.getAttribute('data-sort');
+      var icon = th.querySelector('.sort-icon');
+      if (icon) {
+        icon.textContent = k === key ? (dir === 1 ? ' ↑' : ' ↓') : '';
+      }
+    });
+  }
+
+  thead && thead.querySelectorAll('.sortable-th').forEach(function (th) {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', function () {
+      var key = th.getAttribute('data-sort');
+      var type = th.getAttribute('data-type') || 'text';
+      if (key) sortBy(key, type);
+    });
+  });
+})();
+</script>
 {% endblock %}

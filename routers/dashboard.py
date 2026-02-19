@@ -36,11 +36,13 @@ async def dashboard(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     chart_harper_crew_only: Optional[str] = None,
+    table_harper_crew_only: Optional[str] = None,
 ):
     if not require_admin(request):
         return _redirect_login()
     player_ids_filter = request.query_params.getlist("players")
     filter_chart_harper_crew_only = chart_harper_crew_only in ("1", "true", "on", "yes")
+    filter_table_harper_crew_only = table_harper_crew_only in ("1", "true", "on", "yes")
 
     with Session(engine) as session:
         all_players = get_active_players(session)
@@ -95,6 +97,10 @@ async def dashboard(
                 "avg_per_game": avg,
                 "net_stddev": stddev,
             })
+        # Table: optionally restrict to Harper crew only
+        if filter_table_harper_crew_only:
+            rows = [r for r in rows if getattr(r["player"], "harper_crew", False)]
+
         # Harper crew first, then by name
         rows.sort(key=lambda r: (not getattr(r["player"], "harper_crew", False), r["player"].name.lower()))
 
@@ -125,6 +131,7 @@ async def dashboard(
             "filter_date_from": d_from.isoformat() if d_from else "",
             "filter_date_to": d_to.isoformat() if d_to else "",
             "filter_chart_harper_crew_only": filter_chart_harper_crew_only,
+            "filter_table_harper_crew_only": filter_table_harper_crew_only,
             "flash_message": flash_message or None,
             "flash_type": "success" if flash_message else None,
             "superlatives": superlatives,
