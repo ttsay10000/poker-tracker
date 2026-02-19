@@ -108,7 +108,7 @@
         <a href="/players/{{ r.player.id }}/edit" class="btn btn-small btn-secondary">Edit</a>
         <a href="/settlements/record?player_id={{ r.player.id }}" class="btn btn-small btn-primary">Record payment</a>
         {% if r.outstanding != 0 %}
-        <form method="post" action="/settlements/settled-up" style="display:inline;" onsubmit="return confirm('Record a settlement that zeroes out {{ r.player.name }}\'s outstanding ({{ \"${:,.2f}\".format(r.outstanding) }})?');">
+        <form method="post" action="/settlements/settled-up" style="display:inline;" onsubmit="return confirm('Record a settlement that zeroes out {{ r.player.name | e }}&#39;s outstanding (${{ '{:,.2f}'.format(r.outstanding) }})?');">
           <input type="hidden" name="player_id" value="{{ r.player.id }}">
           <button type="submit" class="btn btn-small btn-secondary">Settled up</button>
         </form>
