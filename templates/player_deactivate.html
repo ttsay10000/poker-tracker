@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Deactivate {{ player.name }} — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Deactivate {{ player.name }}</h1>
+<p><a href="/players/{{ player.id }}" class="btn btn-link">← Back to profile</a></p>
+
+{% if request.query_params.get('error') == 'invalid_target' %}
+<p class="flash error">Please choose a different player to merge into.</p>
+{% endif %}
+
+<p class="muted">This player has {{ game_entry_count }} game {{ 'entry' if game_entry_count == 1 else 'entries' }} and {{ settlement_count }} settlement {{ 'record' if settlement_count == 1 else 'records' }}.</p>
+
+<div class="card" style="margin-bottom:1.5rem;">
+  <h2>Option 1: Merge into another player</h2>
+  <p>Move all game and settlement data for <strong>{{ player.name }}</strong> into another player, then deactivate this one. Use this for duplicate or renamed players.</p>
+  {% if merge_targets %}
+  <form method="post" action="/players/{{ player.id }}/deactivate/merge" onsubmit="return confirm('Merge all data into the selected player and deactivate {{ player.name }}?');">
+    <label for="target_player_id">Merge into</label>
+    <select name="target_player_id" id="target_player_id" required>
+      <option value="">— Choose player —</option>
+      {% for p in merge_targets %}
+      <option value="{{ p.id }}">{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-primary">Merge and deactivate</button>
+  </form>
+  {% else %}
+  <p class="muted">No other active players to merge into. Add another player first, or use delete below.</p>
+  {% endif %}
+</div>
+
+<div class="card" style="margin-bottom:1.5rem;">
+  <h2>Option 2: Delete and remove all data</h2>
+  <p>Permanently delete all game entries and settlements for this player, then remove the player. This cannot be undone.</p>
+  <form method="post" action="/players/{{ player.id }}/deactivate/delete" onsubmit="return confirm('Permanently delete all game and settlement data for {{ player.name }} and remove this player? This cannot be undone.');">
+    <button type="submit" class="btn btn-danger">Delete player and all data</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>Option 3: Just deactivate</h2>
+  <p>Keep all data but hide this player from the active list. You can still view history; useful if they might return.</p>
+  <form method="post" action="/players/{{ player.id }}/deactivate" style="display:inline;" onsubmit="return confirm('Deactivate {{ player.name }}? Data will be kept.');">
+    <button type="submit" class="btn btn-secondary">Deactivate only</button>
+  </form>
+</div>
+{% endblock %}

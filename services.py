@@ -1,4 +1,5 @@
 """Aggregates and business logic."""
+import math
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
@@ -48,6 +49,38 @@ def outstanding(session: Session, player_id: str) -> Decimal:
 
 def games_played_count(session: Session, player_id: str) -> int:
     return session.exec(select(func.count(GameEntry.id)).where(GameEntry.player_id == player_id)).one() or 0
+
+
+def per_game_nets(session: Session, player_id: str) -> list[Decimal]:
+    """Return list of net_change per game for this player (one value per game played)."""
+    rows = session.exec(
+        select(GameEntry.net_change).where(GameEntry.player_id == player_id)
+    ).all()
+    return list(rows) if rows else []
+
+
+def per_game_net_stddev(session: Session, player_id: str) -> Optional[float]:
+    """Standard deviation of per-game net for this player. None if fewer than 2 games."""
+    nets = per_game_nets(session, player_id)
+    if len(nets) < 2:
+        return None
+    vals = [float(n) for n in nets]
+    n = len(vals)
+    mean = sum(vals) / n
+    variance = sum((x - mean) ** 2 for x in vals) / n
+    return math.sqrt(variance)
+
+
+# ---- Game date range (for default chart window) ----
+def get_game_date_range(session: Session) -> tuple[Optional[date], Optional[date]]:
+    """Return (min played_at date, max played_at date) across all games, or (None, None) if no games."""
+    row = session.exec(
+        select(func.min(Game.played_at), func.max(Game.played_at))
+    ).one()
+    if not row or row[0] is None:
+        return (None, None)
+    min_dt, max_dt = row
+    return (min_dt.date() if min_dt else None, max_dt.date() if max_dt else None)
 
 
 # ---- Chart: cumulative net per player over time ----

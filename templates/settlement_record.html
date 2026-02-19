@@ -2,6 +2,7 @@
 {% block title %}Record settlement — Poker Tracker{% endblock %}
 {% block content %}
 <h1>Record settlement</h1>
+<p class="muted"><a href="/settlements/record-batch">Record payments for multiple players</a></p>
 {% if request.query_params.get('error') == 'invalid_amount' %}
 <p class="error">Enter a valid amount.</p>
 {% elif request.query_params.get('error') == 'zero_amount' %}

@@ -5,12 +5,14 @@
 
 <div class="dashboard-actions">
   <a href="/games/new" class="btn btn-primary">Add game</a>
-  <a href="/games" class="btn btn-secondary">View Games</a>
+  <a href="/games" class="btn btn-secondary">View / Edit games</a>
   <a href="/players/new" class="btn btn-secondary">New player</a>
+  <a href="/settlements/record-batch" class="btn btn-secondary">Record payments (multiple)</a>
 </div>
+<p class="muted" style="margin-top:0.25rem;">You can edit any game from <a href="/games">Games</a> (View / Edit) or from a player’s recent games; edit players via Edit on the table or from their profile.</p>
 
 <form method="get" action="/dashboard" class="filters">
-  <label>Players
+  <label>Players <span class="muted">(select multiple to compare lines)</span>
     <select name="players" multiple size="4" style="min-width:140px;">
       {% for p in filter_players %}
       <option value="{{ p.id }}" {% if p.id in filter_player_ids %}selected{% endif %}>{{ p.name }}</option>
@@ -19,6 +21,10 @@
   </label>
   <label>From <input type="date" name="date_from" value="{{ filter_date_from }}"></label>
   <label>To <input type="date" name="date_to" value="{{ filter_date_to }}"></label>
+  <label class="filter-checkbox">
+    <input type="checkbox" name="chart_harper_crew_only" value="1" {% if filter_chart_harper_crew_only %}checked{% endif %}>
+    Chart: Harper crew only
+  </label>
   <button type="submit" class="btn btn-secondary btn-small">Apply</button>
 </form>
 
@@ -26,22 +32,64 @@
   <canvas id="chart"></canvas>
 </div>
 
-<table>
+{% if superlatives and (superlatives.lifetime_winner or superlatives.lifetime_loser or superlatives.most_consistent or superlatives.most_inconsistent) %}
+<section class="superlatives-box">
+  <h2 class="superlatives-title">Highlights</h2>
+  <div class="superlatives-grid">
+    {% if superlatives.lifetime_winner %}
+    <div class="superlative-item">
+      <span class="superlative-label">Lifetime winner</span>
+      <span class="superlative-value positive">{{ superlatives.lifetime_winner.player.name }}</span>
+      <span class="superlative-sub">${{ "{:,.2f}".format(superlatives.lifetime_winner.lifetime_net) }}</span>
+    </div>
+    {% endif %}
+    {% if superlatives.lifetime_loser %}
+    <div class="superlative-item">
+      <span class="superlative-label">Lifetime loser</span>
+      <span class="superlative-value negative">{{ superlatives.lifetime_loser.player.name }}</span>
+      <span class="superlative-sub">${{ "{:,.2f}".format(superlatives.lifetime_loser.lifetime_net) }}</span>
+    </div>
+    {% endif %}
+    {% if superlatives.most_consistent %}
+    <div class="superlative-item">
+      <span class="superlative-label">Most consistent</span>
+      <span class="superlative-value">{{ superlatives.most_consistent.player.name }}</span>
+      <span class="superlative-sub">steady results</span>
+    </div>
+    {% endif %}
+    {% if superlatives.most_inconsistent %}
+    <div class="superlative-item">
+      <span class="superlative-label">Most inconsistent</span>
+      <span class="superlative-value">{{ superlatives.most_inconsistent.player.name }}</span>
+      <span class="superlative-sub">swingy results</span>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+<div class="table-wrap">
+<table id="dashboard-table" class="sortable">
   <thead>
     <tr>
-      <th>Player</th>
-      <th>Total net</th>
-      <th>Games</th>
-      <th>Avg/game</th>
-      <th>Outstanding</th>
+      <th class="sortable-th" data-sort="player" data-type="text">Player <span class="sort-icon"></span></th>
+      <th class="sortable-th" data-sort="lifetime_net" data-type="num">Total net <span class="sort-icon"></span></th>
+      <th class="sortable-th" data-sort="games_played" data-type="num">Games <span class="sort-icon"></span></th>
+      <th class="sortable-th" data-sort="avg_per_game" data-type="num">Avg/game <span class="sort-icon"></span></th>
+      <th class="sortable-th" data-sort="outstanding" data-type="num">Outstanding <span class="sort-icon"></span></th>
       <th>Status</th>
       <th>Actions</th>
     </tr>
   </thead>
   <tbody>
     {% for r in rows %}
-    <tr>
-      <td>{{ r.player.name }}</td>
+    <tr data-player="{{ r.player.name }}" data-lifetime-net="{{ r.lifetime_net }}" data-games-played="{{ r.games_played }}" data-avg-per-game="{{ r.avg_per_game if r.avg_per_game is not none else '' }}" data-outstanding="{{ r.outstanding }}">
+      <td>
+        {{ r.player.name }}
+        {% if r.player.harper_crew %}
+        <span class="badge badge-info" title="Harper crew">HC</span>
+        {% endif %}
+      </td>
       <td>{{ "${:,.2f}".format(r.lifetime_net) }}</td>
       <td>{{ r.games_played }}</td>
       <td>{% if r.avg_per_game is not none %}{{ "${:,.2f}".format(r.avg_per_game) }}{% else %}—{% endif %}</td>
@@ -59,16 +107,22 @@
         <a href="/players/{{ r.player.id }}" class="btn btn-small btn-primary">Profile</a>
         <a href="/players/{{ r.player.id }}/edit" class="btn btn-small btn-secondary">Edit</a>
         <a href="/settlements/record?player_id={{ r.player.id }}" class="btn btn-small btn-primary">Record payment</a>
-        {% if r.player.is_active %}
-        <form method="post" action="/players/{{ r.player.id }}/deactivate" style="display:inline;" onsubmit="return confirm('Deactivate this player?');">
-          <button type="submit" class="btn btn-small btn-danger">Deactivate</button>
+        {% if r.outstanding != 0 %}
+        <form method="post" action="/settlements/settled-up" style="display:inline;" onsubmit="return confirm('Record a settlement that zeroes out {{ r.player.name }}\'s outstanding ({{ \"${:,.2f}\".format(r.outstanding) }})?');">
+          <input type="hidden" name="player_id" value="{{ r.player.id }}">
+          <button type="submit" class="btn btn-small btn-secondary">Settled up</button>
         </form>
+        {% endif %}
+        {% if r.player.is_active %}
+        <a href="/players/{{ r.player.id }}/deactivate" class="btn btn-small btn-danger">Deactivate</a>
         {% endif %}
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+<p class="table-total" style="margin-top:0.75rem; font-weight:600;">Total outstanding: {{ "${:,.2f}".format(total_outstanding) }}</p>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
@@ -101,6 +155,55 @@
         y: { beginAtZero: true }
       }
     }
+  });
+})();
+
+(function () {
+  var table = document.getElementById('dashboard-table');
+  if (!table) return;
+  var thead = table.querySelector('thead');
+  var tbody = table.querySelector('tbody');
+  var rows = tbody ? Array.from(tbody.querySelectorAll('tr')) : [];
+  var currentSort = { key: null, dir: 1 };
+
+  function getCellValue(row, key) {
+    var val = row.getAttribute('data-' + key.replace(/_/g, '-'));
+    if (val === '' || val === null) return null;
+    if (key === 'player') return (val || '').toLowerCase();
+    return parseFloat(val);
+  }
+
+  function sortBy(key, type) {
+    var dir = currentSort.key === key ? -currentSort.dir : 1;
+    currentSort = { key: key, dir: dir };
+    rows.sort(function (a, b) {
+      var va = getCellValue(a, key);
+      var vb = getCellValue(b, key);
+      if (va === null && vb === null) return 0;
+      if (va === null) return dir;
+      if (vb === null) return -dir;
+      if (type === 'num') {
+        return (va - vb) * dir;
+      }
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
+    });
+    rows.forEach(function (r) { tbody.appendChild(r); });
+    thead.querySelectorAll('.sortable-th').forEach(function (th) {
+      var k = th.getAttribute('data-sort');
+      var icon = th.querySelector('.sort-icon');
+      if (icon) {
+        icon.textContent = k === key ? (dir === 1 ? ' ↑' : ' ↓') : '';
+      }
+    });
+  }
+
+  thead && thead.querySelectorAll('.sortable-th').forEach(function (th) {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', function () {
+      var key = th.getAttribute('data-sort');
+      var type = th.getAttribute('data-type') || 'text';
+      if (key) sortBy(key, type);
+    });
   });
 })();
 </script>

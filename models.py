@@ -18,6 +18,7 @@ class Player(SQLModel, table=True):
     name: str = Field(max_length=255)
     name_normalized: str = Field(max_length=255, unique=True, index=True)
     is_active: bool = Field(default=True)
+    harper_crew: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     # Profile / analytics add-on
     venmo_handle: Optional[str] = Field(default=None, max_length=255)

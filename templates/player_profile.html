@@ -51,9 +51,7 @@
       </div>
     </form>
     {% if player.is_active %}
-    <form method="post" action="/players/{{ player.id }}/deactivate" style="display:inline; margin-top:0.5rem;" onsubmit="return confirm('Deactivate this player?');">
-      <button type="submit" class="btn btn-small btn-danger">Deactivate player</button>
-    </form>
+    <a href="/players/{{ player.id }}/deactivate" class="btn btn-small btn-danger" style="margin-top:0.5rem;">Deactivate player</a>
     {% endif %}
   </div>
 </div>

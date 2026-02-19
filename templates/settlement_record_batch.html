@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Record payments (multiple) — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Record payments (multiple players)</h1>
+<p class="muted">Add one or more rows; leave player blank to skip that row. Same date applies to all.</p>
+{% if request.query_params.get('error') == 'batch_errors' %}
+<p class="error">Some rows had errors; valid rows were saved.</p>
+{% elif request.query_params.get('error') == 'no_payments' %}
+<p class="error">No payments to record. Select at least one player and enter a non-zero amount.</p>
+{% endif %}
+<form method="post" action="/settlements/record-batch" id="batch-form">
+  <label for="settled_at">Date (for all)</label>
+  <input type="date" id="settled_at" name="settled_at" value="{{ request.query_params.get('date') or today_iso }}">
+
+  <div class="batch-rows" style="margin-top:1rem;">
+    <table class="batch-payments-table">
+      <thead>
+        <tr>
+          <th>Player</th>
+          <th>Amount ($)</th>
+          <th>Direction</th>
+          <th>Note (optional)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="batch-tbody">
+        {% for i in range(5) %}
+        <tr class="batch-row">
+          <td>
+            <select name="player_id" class="batch-player">
+              <option value="">— Skip —</option>
+              {% for p in players %}
+              <option value="{{ p.id }}">{{ p.name }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td><input type="number" name="amount" step="0.01" min="0" placeholder="0.00" class="batch-amount"></td>
+          <td>
+            <select name="direction" class="batch-direction">
+              <option value="i_paid_player">I paid player</option>
+              <option value="player_paid_me">Player paid me</option>
+            </select>
+          </td>
+          <td><input type="text" name="note" placeholder="Optional" class="batch-note"></td>
+          <td><button type="button" class="btn btn-small btn-secondary remove-row" aria-label="Remove row">Remove</button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p style="margin-top:0.5rem;">
+      <button type="button" id="add-row" class="btn btn-secondary btn-small">Add row</button>
+    </p>
+  </div>
+
+  <div style="margin-top:1rem;">
+    <button type="submit" class="btn btn-primary">Record all</button>
+    <a href="/dashboard" class="btn btn-secondary">Cancel</a>
+  </div>
+</form>
+
+<script>
+(function() {
+  var tbody = document.getElementById('batch-tbody');
+  var rowTemplate = tbody.querySelector('tr.batch-row').outerHTML;
+
+  document.getElementById('add-row').addEventListener('click', function() {
+    var first = tbody.querySelector('tr.batch-row');
+    var tr = document.createElement('tr');
+    tr.className = 'batch-row';
+    tr.innerHTML = first.innerHTML;
+    tbody.appendChild(tr);
+    tr.querySelectorAll('select').forEach(function(s) { s.selectedIndex = 0; });
+    tr.querySelectorAll('input').forEach(function(i) { i.value = ''; });
+  });
+
+  tbody.addEventListener('click', function(e) {
+    if (e.target.classList.contains('remove-row')) {
+      var row = e.target.closest('tr');
+      if (tbody.querySelectorAll('tr.batch-row').length > 1) row.remove();
+    }
+  });
+})();
+</script>
+{% endblock %}
