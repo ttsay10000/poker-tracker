@@ -126,6 +126,7 @@ def _parse_response(text: str) -> Dict[str, Any]:
 def extract_game(
     notes: Optional[str] = None,
     image_paths: Optional[List[Path]] = None,
+    image_display_names: Optional[List[str]] = None,
     player_names: Optional[List[str]] = None,
     alias_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
@@ -133,12 +134,15 @@ def extract_game(
     Extract game date and player rows from notes and/or images using OpenAI.
     Returns {"rows": list of row dicts, "suggested_played_at": "YYYY-MM-DD" or None}.
     Row dicts have raw_name, buyin, cashout, final_stack, net_change, and optionally suggested_player_name.
+    image_display_names: if provided, one per image_path; used in the prompt so the LLM can infer date from
+    the user's original filename/title (e.g. "IMG_2025-02-15.jpg") instead of the saved UUID filename.
     """
     empty_result: Dict[str, Any] = {"rows": [], "suggested_played_at": None}
     if not OPENAI_API_KEY:
         return empty_result
     notes = (notes or "").strip()
     image_paths = image_paths or []
+    image_display_names = image_display_names or []
     if not notes and not image_paths:
         return empty_result
     valid_paths = [p for p in image_paths if p and getattr(p, "is_file", lambda: False)() and p.is_file()]
@@ -148,11 +152,16 @@ def extract_game(
     prompt_suffix = _player_hints_prompt(player_names or [], alias_map or {})
     extract_prompt = _EXTRACT_PROMPT_BASE + prompt_suffix
 
-    # Include file names so the LLM can use them to infer game date (e.g. "poker_2025-02-15.png")
+    # Use original filenames (e.g. "IMG_2025-02-15.jpg") when provided so the LLM can infer date from the title
     file_names_context = ""
     if valid_paths:
-        names = [p.name for p in valid_paths]
-        file_names_context = "File names of the image(s) (use these to help infer the game date if a date appears in the filename): " + ", ".join(names) + "\n\n"
+        names = []
+        for i, p in enumerate(valid_paths):
+            if i < len(image_display_names) and (image_display_names[i] or "").strip():
+                names.append((image_display_names[i] or "").strip())
+            else:
+                names.append(p.name)
+        file_names_context = "File names (titles) of the image(s)—use these to infer the game date when a date appears in the filename (e.g. 2025-02-15, 20250215, or in text like 'Feb 18'): " + ", ".join(names) + "\n\n"
 
     content: list[dict] = []
     if notes:

@@ -167,11 +167,13 @@ async def new_game_post(request: Request):
         if f and hasattr(f, "filename") and f.filename:
             files = [f]
     saved_paths = []
+    saved_original_filenames = []  # user's filename (e.g. IMG_2025-02-15.jpg) for LLM date inference
     source_image_path_or_url = None
     upload_size_error = False
     for file in files:
         if not hasattr(file, "filename") or not file.filename:
             continue
+        original_filename = (file.filename or "").strip()
         ext = (file.filename or "").split(".")[-1] or "png"
         if ext.lower() not in ("png", "jpg", "jpeg", "gif", "webp"):
             ext = "png"
@@ -188,6 +190,7 @@ async def new_game_post(request: Request):
         except Exception:
             continue
         saved_paths.append(path)
+        saved_original_filenames.append(original_filename)
         if source_image_path_or_url is None:
             source_image_path_or_url = f"/uploads/{name}"
 
@@ -250,6 +253,7 @@ async def new_game_post(request: Request):
                 result = extract_game(
                     notes=notes or None,
                     image_paths=saved_paths,
+                    image_display_names=saved_original_filenames,
                     player_names=player_names,
                     alias_map=PLAYER_ALIASES or {},
                 )
@@ -278,13 +282,15 @@ async def new_game_post(request: Request):
             })
         elif len(saved_paths) > 1:
             # One game per screenshot
-            for path in saved_paths:
+            for idx, path in enumerate(saved_paths):
                 name = path.name
                 url = f"/uploads/{name}"
+                display_name = saved_original_filenames[idx] if idx < len(saved_original_filenames) else None
                 result = None
                 try:
                     result = extract_game(
                         image_paths=[path],
+                        image_display_names=[display_name] if display_name else None,
                         player_names=player_names,
                         alias_map=PLAYER_ALIASES or {},
                     )
@@ -311,6 +317,7 @@ async def new_game_post(request: Request):
                 result = extract_game(
                     notes=notes or None,
                     image_paths=saved_paths or None,
+                    image_display_names=saved_original_filenames if saved_paths else None,
                     player_names=player_names,
                     alias_map=PLAYER_ALIASES or {},
                 )
