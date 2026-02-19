@@ -30,6 +30,7 @@
       <td>{{ item.game.created_at.strftime('%Y-%m-%d %H:%M') if item.game.created_at else '—' }}</td>
       <td>
         <a href="/games/{{ item.game.id }}" class="btn btn-small btn-secondary">View / Edit</a>
+        <a href="/games/{{ item.game.id }}/delete" class="btn btn-small btn-danger" style="margin-left:0.25rem;">Delete</a>
       </td>
     </tr>
     {% endfor %}

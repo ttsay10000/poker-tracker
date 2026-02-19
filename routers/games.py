@@ -106,9 +106,11 @@ def _game_totals_key(total_buyins: Decimal, total_cashouts: Decimal, sum_net: De
 
 # ---- List ----
 @router.get("", response_class=HTMLResponse)
-async def game_list(request: Request):
+async def game_list(request: Request, flash: str = ""):
     if not require_admin(request):
         return _redirect_login()
+    flash_message = flash.replace("+", " ") if flash else None
+    flash_type = "success" if flash_message else None
     with Session(engine) as session:
         games = list(session.exec(select(Game).order_by(Game.played_at.desc())).all())
         # Per-game: entry count, balanced, sum_net, total_buyins, total_cashouts
@@ -142,7 +144,13 @@ async def game_list(request: Request):
             item["possible_duplicate"] = key_counts.get(key, 0) > 1
     return templates.TemplateResponse(
         "game_list.html",
-        {"request": request, "game_list_data": game_list_data, "total_discrepancy": total_discrepancy},
+        {
+            "request": request,
+            "game_list_data": game_list_data,
+            "total_discrepancy": total_discrepancy,
+            "flash_message": flash_message,
+            "flash_type": flash_type,
+        },
     )
 
 
@@ -807,6 +815,46 @@ async def game_saved_page(request: Request, n: str = "1"):
     )
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     return response
+
+
+# ---- Delete game (confirm + do) ----
+@router.get("/{game_id}/delete", response_class=HTMLResponse)
+async def game_delete_confirm(request: Request, game_id: str):
+    if not require_admin(request):
+        return _redirect_login()
+    with Session(engine) as session:
+        game = session.get(Game, game_id)
+        if not game:
+            return RedirectResponse(url="/games", status_code=302)
+        entries = list(session.exec(select(GameEntry).where(GameEntry.game_id == game_id)).all())
+        entry_count = len(entries)
+        sum_net = sum(e.net_change for e in entries)
+        played_at_str = game.played_at.strftime("%Y-%m-%d") if game.played_at else "—"
+    return templates.TemplateResponse(
+        "game_delete_confirm.html",
+        {
+            "request": request,
+            "game_id": game_id,
+            "played_at_str": played_at_str,
+            "entry_count": entry_count,
+            "sum_net": sum_net,
+        },
+    )
+
+
+@router.post("/{game_id}/delete", response_class=HTMLResponse)
+async def game_delete_post(request: Request, game_id: str):
+    if not require_admin(request):
+        return _redirect_login()
+    with Session(engine) as session:
+        game = session.get(Game, game_id)
+        if not game:
+            return RedirectResponse(url="/games", status_code=302)
+        for entry in session.exec(select(GameEntry).where(GameEntry.game_id == game_id)).all():
+            session.delete(entry)
+        session.delete(game)
+        session.commit()
+    return RedirectResponse(url="/games?flash=Game+deleted.", status_code=302)
 
 
 # ---- Edit saved game ----

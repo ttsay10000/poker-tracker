@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Delete game — Poker Tracker{% endblock %}
+{% block content %}
+<h1>Delete game</h1>
+<p><a href="/games" class="btn btn-link">← Back to Games</a></p>
+
+<div class="delete-warning" style="max-width:32rem; padding:1rem; border:1px solid var(--danger, #c00); border-radius:8px; background:rgba(200,0,0,0.06); margin:1rem 0;">
+  <p style="margin:0 0 0.5rem 0;"><strong>This cannot be undone.</strong></p>
+  <p style="margin:0;">Deleting this game will permanently remove the game and all {{ entry_count }} player entry/entries. Stats and player totals will be updated accordingly.</p>
+</div>
+
+<p><strong>Game date:</strong> {{ played_at_str }}</p>
+{% if sum_net is not none %}
+<p><strong>Net (this game):</strong> {{ "${:,.2f}".format(sum_net) }}</p>
+{% endif %}
+
+<form method="post" action="/games/{{ game_id }}/delete" style="margin-top:1.5rem;">
+  <input type="hidden" name="csrf_confirm" value="delete">
+  <button type="submit" class="btn btn-danger">Delete this game</button>
+  <a href="/games/{{ game_id }}" class="btn btn-link">Cancel</a>
+</form>
+{% endblock %}
