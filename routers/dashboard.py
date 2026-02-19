@@ -30,7 +30,7 @@ def _redirect_login():
     return RedirectResponse(url="/login", status_code=302)
 
 
-@router.get("/dashboard", response_class=HTMLResponse)
+@router.get("", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
     date_from: Optional[str] = None,

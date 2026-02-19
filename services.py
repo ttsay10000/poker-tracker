@@ -74,9 +74,12 @@ def per_game_net_stddev(session: Session, player_id: str) -> Optional[float]:
 # ---- Game date range (for default chart window) ----
 def get_game_date_range(session: Session) -> tuple[Optional[date], Optional[date]]:
     """Return (min played_at date, max played_at date) across all games, or (None, None) if no games."""
-    row = session.exec(
-        select(func.min(Game.played_at), func.max(Game.played_at))
-    ).one()
+    try:
+        row = session.exec(
+            select(func.min(Game.played_at), func.max(Game.played_at))
+        ).one()
+    except Exception:
+        return (None, None)
     if not row or row[0] is None:
         return (None, None)
     min_dt, max_dt = row

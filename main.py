@@ -1,4 +1,5 @@
 """FastAPI app: poker tracker."""
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -6,6 +7,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from config import BASE_DIR, DATABASE_URL, UPLOADS_DIR
@@ -15,6 +17,9 @@ from auth import require_admin
 from services import get_active_players
 from models import Player
 from services import normalize_name
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Poker Tracker")
 
@@ -30,7 +35,7 @@ app.state.templates = templates
 
 # Routers
 app.include_router(auth_router.router, tags=["auth"])
-app.include_router(dashboard.router, tags=["dashboard"])
+app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(players.router, prefix="/players", tags=["players"])
 app.include_router(settlements.router, prefix="/settlements", tags=["settlements"])
 app.include_router(games.router, prefix="/games", tags=["games"])
@@ -43,6 +48,31 @@ def startup():
     # schema is managed solely by Alembic so alembic_version stays in sync.
     if "sqlite" in DATABASE_URL:
         create_db_and_tables()
+
+
+@app.get("/health")
+async def health():
+    """Simple health check: DB connectivity. Returns 200 if DB is reachable, 500 with detail if not."""
+    try:
+        with Session(engine) as session:
+            session.execute(text("SELECT 1")).scalar()
+        return {"status": "ok"}
+    except Exception as e:
+        logger.exception("Health check failed")
+        return JSONResponse(
+            {"status": "error", "detail": str(e)},
+            status_code=500,
+        )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Log unhandled exceptions so Render logs show the real error."""
+    logger.exception("Unhandled exception: %s", exc)
+    return JSONResponse(
+        {"detail": "Internal server error"},
+        status_code=500,
+    )
 
 
 @app.get("/")
