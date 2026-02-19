@@ -115,6 +115,67 @@
     }
   }
 
+  // Live balance: recalc net from buyin/cashout/final_stack and update discrepancy total (single-game edit form)
+  function initReviewBalanceLive() {
+    var wrap = document.getElementById('balance-status-wrap');
+    var msgEl = document.getElementById('balance-status-msg');
+    var form = document.getElementById('review-form');
+    if (!wrap || !msgEl || !form) return;
+    var table = form.querySelector('.review-grid table tbody');
+    if (!table) return;
+    var BALANCE_EPSILON = 0.01;
+
+    function parseNum(val) {
+      var n = parseFloat(val);
+      return isNaN(n) ? 0 : n;
+    }
+
+    function rowInputs(row) {
+      return {
+        buyin: row.querySelector('input[name*="[buyin]"]'),
+        cashout: row.querySelector('input[name*="[cashout]"]'),
+        final_stack: row.querySelector('input[name*="[final_stack]"]'),
+        net_change: row.querySelector('input[name*="[net_change]"]')
+      };
+    }
+
+    function recalcRowNet(row) {
+      var inps = rowInputs(row);
+      if (!inps.buyin || !inps.cashout || !inps.final_stack || !inps.net_change) return;
+      var buyin = parseNum(inps.buyin.value);
+      var cashout = parseNum(inps.cashout.value);
+      var final_stack = parseNum(inps.final_stack.value);
+      var net = cashout + final_stack - buyin;
+      inps.net_change.value = net.toFixed(2);
+    }
+
+    function updateTotal() {
+      var rows = table.querySelectorAll('tr:not(.row-template)');
+      var total = 0;
+      rows.forEach(function (row) {
+        var nc = row.querySelector('input[name*="[net_change]"]');
+        if (nc) total += parseNum(nc.value);
+      });
+      var balanced = Math.abs(total) <= BALANCE_EPSILON;
+      wrap.classList.toggle('ok', balanced);
+      wrap.classList.toggle('fail', !balanced);
+      msgEl.textContent = balanced ? 'Balanced \u2705 (sum = $0.00)' : 'Discrepancy: $' + total.toFixed(2);
+    }
+
+    function onCellChange(e) {
+      var row = e.target.closest('tr');
+      if (!row || row.classList.contains('row-template')) return;
+      var inps = rowInputs(row);
+      if (e.target === inps.buyin || e.target === inps.cashout || e.target === inps.final_stack) {
+        recalcRowNet(row);
+      }
+      updateTotal();
+    }
+
+    table.addEventListener('input', onCellChange);
+    table.addEventListener('change', onCellChange);
+  }
+
   // Add row in review grid (clone template row); supports single-game (edit) and multi-game (add) forms
   function initReviewGrid() {
     var table = document.querySelector('.review-grid table tbody');
@@ -318,12 +379,14 @@
     document.addEventListener('DOMContentLoaded', function () {
       initLoadingOverlays();
       initReviewGrid();
+      initReviewBalanceLive();
       initUploadDrop();
       initPlayerSelects();
     });
   } else {
     initLoadingOverlays();
     initReviewGrid();
+    initReviewBalanceLive();
     initUploadDrop();
     initPlayerSelects();
   }

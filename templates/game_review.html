@@ -103,9 +103,10 @@
     <button type="button" id="add-row" class="btn btn-secondary btn-small">Add row</button>
     <button type="button" id="refresh-players" class="btn btn-link btn-small">Refresh player list</button>
   </p>
-  <div class="balance-status {{ 'ok' if balanced else 'fail' }}">
-    {% if balanced %}Balanced ✅ (sum = $0.00){% else %}Discrepancy: {{ "${:,.2f}".format(delta) }}{% endif %}
+  <div class="balance-status {{ 'ok' if balanced else 'fail' }}" id="balance-status-wrap">
+    <span id="balance-status-msg">{% if balanced %}Balanced ✅ (sum = $0.00){% else %}Discrepancy: {{ "${:,.2f}".format(delta) }}{% endif %}</span>
   </div>
+  <p class="muted balance-status-help" style="font-size:0.85rem; margin-top:0.25rem;">In a closed game the total should be $0. Adjust Net change or buy-in / cashout / final stack so they match: Net = (Cashout + Final stack) − Buy-in.</p>
   {% else %}
   {# ----- Add flow: one section per game (with image) ----- #}
   {% for game in games %}

@@ -88,6 +88,29 @@ async def settled_up_post(request: Request):
     return RedirectResponse(url="/dashboard?flash=Settled+up", status_code=302)
 
 
+@router.post("/settled-up-all")
+async def settled_up_all_post(request: Request):
+    """Record settlements that zero out every player's outstanding balance."""
+    if not require_admin(request):
+        return _redirect_login()
+    with Session(engine) as session:
+        players = get_active_players(session)
+        settled_count = 0
+        for p in players:
+            out = outstanding(session, p.id)
+            if out == 0:
+                continue
+            s = Settlement(player_id=p.id, settled_at=date.today(), amount=out, note="Settled up")
+            session.add(s)
+            settled_count += 1
+        if settled_count:
+            session.commit()
+    if settled_count == 0:
+        return RedirectResponse(url="/dashboard?flash=Everyone+already+settled", status_code=302)
+    msg = "All+players+settled+up" if settled_count > 1 else "Settled+up"
+    return RedirectResponse(url=f"/dashboard?flash={msg}", status_code=302)
+
+
 @router.get("/record-batch", response_class=HTMLResponse)
 async def record_batch_page(request: Request):
     if not require_admin(request):

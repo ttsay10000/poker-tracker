@@ -123,8 +123,8 @@ async def game_list(request: Request, flash: str = ""):
             total_buyins = sum((e.buyin or Decimal(0)) for e in entries)
             total_cashouts = sum((e.cashout or Decimal(0)) for e in entries)
             balanced = abs(total_net) <= BALANCE_EPSILON
-            if not balanced:
-                total_discrepancy += total_net
+            # Discrepancy per game = total net for that game; running total sums all games (recomputed each time)
+            total_discrepancy += total_net
             key = _game_totals_key(total_buyins, total_cashouts, total_net)
             totals_keys.append(key)
             game_list_data.append({
@@ -132,6 +132,7 @@ async def game_list(request: Request, flash: str = ""):
                 "entry_count": len(entries),
                 "balanced": balanced,
                 "sum_net": total_net,
+                "discrepancy": total_net,
                 "total_buyins": total_buyins,
                 "total_cashouts": total_cashouts,
             })
