@@ -1,7 +1,8 @@
 """Games: list, manual new, review, confirm, save; edit saved game."""
 import logging
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+from typing import Any
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -55,25 +56,40 @@ def _form_dict(request_form) -> dict:
         return {}
 
 
+def _to_decimal(v: Any) -> Decimal:
+    """Coerce value (str, int, float, Decimal, None) to Decimal for arithmetic. Safe for extraction output."""
+    if v is None or v == "":
+        return Decimal(0)
+    try:
+        return Decimal(str(v).strip().replace(",", ""))
+    except (InvalidOperation, ValueError):
+        return Decimal(0)
+
+
 def _rows_for_template(rows: list) -> list:
     """Convert parsed rows to template-friendly dicts (Decimal -> str for form values).
     Net is derived from buyin/cashout/final_stack when missing: (cashout + final_stack) - buyin.
+    Row values may be strings (e.g. from LLM extraction), so we coerce when deriving net.
     """
     out = []
     for r in rows:
         net = r.get("net_change")
-        if net is None and (r.get("buyin") is not None or r.get("cashout") is not None or r.get("final_stack") is not None):
-            buyin = r.get("buyin") or Decimal(0)
-            cashout = r.get("cashout") or Decimal(0)
-            stack = r.get("final_stack") or Decimal(0)
-            net = (cashout + stack) - buyin
+        if net is None or (isinstance(net, str) and net.strip() == ""):
+            bi, co, st = r.get("buyin"), r.get("cashout"), r.get("final_stack")
+            if bi is not None or co is not None or st is not None:
+                net = _to_decimal(co) + _to_decimal(st) - _to_decimal(bi)
+        def _str_val(key: str) -> str:
+            v = r.get(key)
+            if v is None or v == "":
+                return ""
+            return str(v)
         out.append({
-            "player_id": r["player_id"] or "",
-            "raw_name": r["raw_name"] or "",
-            "buyin": str(r["buyin"]) if r["buyin"] is not None else "",
-            "cashout": str(r["cashout"]) if r["cashout"] is not None else "",
-            "final_stack": str(r["final_stack"]) if r["final_stack"] is not None else "",
-            "net_change": str(net) if net is not None else "",
+            "player_id": r.get("player_id") or "",
+            "raw_name": r.get("raw_name") or "",
+            "buyin": _str_val("buyin"),
+            "cashout": _str_val("cashout"),
+            "final_stack": _str_val("final_stack"),
+            "net_change": str(net) if net is not None and not (isinstance(net, str) and (net or "").strip() == "") else "",
             "errors": r.get("errors", []),
         })
     return out
@@ -412,7 +428,7 @@ async def new_game_post(request: Request):
                 extracted = result.get("rows") or []
                 if extracted:
                     rows = _extract_rows(extracted, name_to_id)
-                if not played_at and result.get("suggested_played_at"):
+                if not played_at and result and result.get("suggested_played_at"):
                     try:
                         from datetime import date as date_type
                         d = date_type.fromisoformat(result["suggested_played_at"])
