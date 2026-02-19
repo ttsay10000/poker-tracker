@@ -14,8 +14,8 @@ from config import BASE_DIR, BALANCE_EPSILON, UPLOADS_DIR, OPENAI_API_KEY, MAX_U
 from database import engine
 from extract_game import extract_game
 from game_forms import parse_game_form
-from models import Game, GameEntry
-from services import get_active_players, has_any_settlements, settlements_affect_players
+from models import Game, GameEntry, Player
+from services import get_active_players, has_any_settlements, settlements_affect_players, normalize_name
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -23,6 +23,23 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 def _redirect_login():
     return RedirectResponse(url="/login", status_code=302)
+
+
+def _resolve_new_players(session: Session, rows: list[dict]) -> None:
+    """Create players for rows with player_id '__new__' using raw_name, before any game data is assigned."""
+    for r in rows:
+        if (r.get("player_id") or "").strip() != "__new__":
+            continue
+        name = (r.get("raw_name") or "").strip() or "New Player"
+        name_norm = normalize_name(name)
+        existing = session.exec(select(Player).where(Player.name_normalized == name_norm)).first()
+        if existing:
+            r["player_id"] = existing.id
+        else:
+            player = Player(name=name, name_normalized=name_norm)
+            session.add(player)
+            session.flush()
+            r["player_id"] = player.id
 
 
 def _form_dict(request_form) -> dict:
@@ -252,6 +269,8 @@ async def review_post(request: Request):
     except Exception:
         return RedirectResponse(url="/games/new?flash=Invalid+form.+Please+try+again.", status_code=302)
     with Session(engine) as session:
+        _resolve_new_players(session, data["rows"])
+        session.commit()
         players = get_active_players(session)
     if data["errors"]:
         return templates.TemplateResponse(
@@ -320,6 +339,7 @@ async def save_post(request: Request, add_another: str = ""):
             },
         )
     with Session(engine) as session:
+        _resolve_new_players(session, data["rows"])
         game = Game(
             played_at=data["played_at"],
             source_image_path_or_url=data["source_image_path_or_url"],
@@ -425,6 +445,7 @@ async def game_edit_save(request: Request, game_id: str, add_another: str = ""):
             },
         )
     with Session(engine) as session:
+        _resolve_new_players(session, data["rows"])
         game = session.get(Game, game_id)
         if not game:
             return RedirectResponse(url="/games", status_code=302)

@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Confirm save — Poker Tracker{% endblock %}
 {% block content %}
+<p class="add-game-step"><strong>Step 3 of 3</strong> — Confirm & save</p>
 <h1>Confirm save</h1>
+<p class="muted" style="margin-bottom:0.75rem;">Review the summary below. Click <strong>Save game</strong> to add this game, or <strong>Back to edit</strong> to change anything.</p>
 <div class="confirm-block">
   <p><strong>Date:</strong> {{ parsed.played_at.strftime('%Y-%m-%d') if parsed.played_at else '—' }}</p>
   <table>

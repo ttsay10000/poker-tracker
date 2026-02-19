@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Add game — Poker Tracker{% endblock %}
 {% block content %}
+<p class="add-game-step"><strong>Step 1 of 3</strong> — Enter date and upload</p>
 <h1>Add game</h1>
 <p class="muted">Enter the game date, then add optional notes and/or screenshots. We'll extract player names and amounts for you to confirm.</p>
-<form method="post" action="/games/new" enctype="multipart/form-data">
+<form method="post" action="/games/new" enctype="multipart/form-data" id="add-game-form">
   <label for="played_at">Game date (required)</label>
   <input type="date" id="played_at" name="played_at" value="{{ prefill_date }}" required>
 
@@ -19,6 +20,7 @@
 
   <div style="margin-top:1rem;">
     <button type="submit" class="btn btn-primary">Continue to review</button>
+    <span class="muted" style="margin-left:0.5rem; font-size:0.85rem;">(upload + AI may take a moment)</span>
     <a href="/dashboard" class="btn btn-secondary">Cancel</a>
   </div>
 </form>

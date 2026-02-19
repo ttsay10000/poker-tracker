@@ -1,6 +1,54 @@
 (function () {
   'use strict';
 
+  // Loading overlay: show spinner + message during form submit (upload+LLM, continue to confirm, save)
+  function getLoadingOverlay() {
+    var existing = document.getElementById('loading-overlay');
+    if (existing) return existing;
+    var overlay = document.createElement('div');
+    overlay.id = 'loading-overlay';
+    overlay.className = 'loading-overlay';
+    overlay.setAttribute('aria-live', 'polite');
+    overlay.innerHTML = '<div class="loading-spinner" aria-hidden="true"></div><p class="loading-text">Please wait…</p>';
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+  function showLoading(message) {
+    var overlay = getLoadingOverlay();
+    var textEl = overlay.querySelector('.loading-text');
+    if (textEl) textEl.textContent = message || 'Please wait…';
+    overlay.classList.add('visible');
+  }
+  function initLoadingOverlays() {
+    var addGameForm = document.getElementById('add-game-form') || document.querySelector('form[action="/games/new"]');
+    if (addGameForm) {
+      addGameForm.addEventListener('submit', function () {
+        showLoading('Uploading & analyzing…');
+      });
+    }
+    var reviewForm = document.getElementById('review-form');
+    if (reviewForm) {
+      var action = (reviewForm.getAttribute('action') || '').toLowerCase();
+      if (action.indexOf('/review') !== -1 && action.indexOf('/save') === -1) {
+        reviewForm.addEventListener('submit', function () {
+          showLoading('Continuing to confirm…');
+        });
+      }
+    }
+    var confirmForm = document.getElementById('confirm-form');
+    if (confirmForm) {
+      confirmForm.addEventListener('submit', function () {
+        showLoading('Saving game…');
+      });
+    }
+    var saveAddAnother = document.getElementById('save-add-another');
+    if (saveAddAnother) {
+      saveAddAnother.addEventListener('submit', function () {
+        showLoading('Saving game…');
+      });
+    }
+  }
+
   // Add row in review grid (clone template row)
   function initReviewGrid() {
     var table = document.querySelector('.review-grid table tbody');
@@ -36,7 +84,7 @@
     });
   }
 
-  // Player select: "Add new player" opens new tab; refresh button fetches latest players
+  // Player select: "Add new player" creates player from Raw Name in same row; refresh button fetches latest players
   function initPlayerSelects() {
     var refreshBtn = document.getElementById('refresh-players');
     if (refreshBtn) {
@@ -65,10 +113,36 @@
     }
     document.querySelectorAll('.player-select[data-player-options]').forEach(function (sel) {
       sel.addEventListener('change', function () {
-        if (sel.value === '__new__') {
+        if (sel.value !== '__new__') return;
+        var row = sel.closest('tr');
+        var rawNameInput = row ? row.querySelector('input[name*="[raw_name]"]') : null;
+        var rawName = rawNameInput ? (rawNameInput.value || '').trim() : '';
+        if (!rawName) {
           window.open('/players/new', '_blank', 'noopener');
           sel.value = '';
+          return;
         }
+        fetch('/api/players', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: rawName })
+        })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (j) { throw new Error(j.detail || 'Failed to create player'); });
+            return r.json();
+          })
+          .then(function (p) {
+            var newOpt = document.createElement('option');
+            newOpt.value = p.id;
+            newOpt.textContent = p.name;
+            sel.insertBefore(newOpt, sel.querySelector('option[value="__new__"]'));
+            sel.value = p.id;
+          })
+          .catch(function (err) {
+            alert(err.message || 'Could not add player');
+            sel.value = '';
+          });
       });
     });
   }
@@ -130,11 +204,13 @@
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', function () {
+      initLoadingOverlays();
       initReviewGrid();
       initUploadDrop();
       initPlayerSelects();
     });
   } else {
+    initLoadingOverlays();
     initReviewGrid();
     initUploadDrop();
     initPlayerSelects();
