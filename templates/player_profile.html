@@ -105,29 +105,29 @@
     <div>
       <h3>All-time (filtered)</h3>
       {% if rivalry.all_time.best_friend %}
-      <p class="badge badge-success">Best Friend: <a href="/players/{{ rivalry.all_time.best_friend.player_id }}">{{ rivalry.all_time.best_friend.player_name }}</a> ({{ "${:+,.2f}".format(rivalry.all_time.best_friend.avg_net_delta) }}/game, {{ rivalry.all_time.best_friend.games_with_x }} games)</p>
-      {% else %}<p class="muted">— (need ≥{{ filter_min_sample }} games with another player)</p>{% endif %}
+      <p class="badge badge-success rivalry-bf">Best Friend: <a href="/players/{{ rivalry.all_time.best_friend.player_id }}">{{ rivalry.all_time.best_friend.player_name }}</a> ({{ "${:+,.2f}".format(rivalry.all_time.best_friend.avg_net_delta) }}/game, {{ rivalry.all_time.best_friend.games_with_x }} games)</p>
+      {% else %}<p class="muted rivalry-bf">— (need ≥{{ filter_min_sample }} games with another player)</p>{% endif %}
       {% if rivalry.all_time.nemesis %}
-      <p class="badge badge-danger">Nemesis: <a href="/players/{{ rivalry.all_time.nemesis.player_id }}">{{ rivalry.all_time.nemesis.player_name }}</a> ({{ "${:+,.2f}".format(rivalry.all_time.nemesis.avg_net_delta) }}/game, {{ rivalry.all_time.nemesis.games_with_x }} games)</p>
-      {% else %}<p class="muted">— (need ≥{{ filter_min_sample }} games with another player)</p>{% endif %}
+      <p class="badge badge-danger rivalry-nem">Nemesis: <a href="/players/{{ rivalry.all_time.nemesis.player_id }}">{{ rivalry.all_time.nemesis.player_name }}</a> ({{ "${:+,.2f}".format(rivalry.all_time.nemesis.avg_net_delta) }}/game, {{ rivalry.all_time.nemesis.games_with_x }} games)</p>
+      {% else %}<p class="muted rivalry-nem">— (need ≥{{ filter_min_sample }} games with another player)</p>{% endif %}
     </div>
     <div>
       <h3>Last 90 days</h3>
       {% if rivalry.last_90_days.best_friend %}
-      <p class="badge badge-success">Best Friend: <a href="/players/{{ rivalry.last_90_days.best_friend.player_id }}">{{ rivalry.last_90_days.best_friend.player_name }}</a></p>
-      {% else %}<p class="muted">—</p>{% endif %}
+      <p class="badge badge-success rivalry-bf">Best Friend: <a href="/players/{{ rivalry.last_90_days.best_friend.player_id }}">{{ rivalry.last_90_days.best_friend.player_name }}</a></p>
+      {% else %}<p class="muted rivalry-bf">—</p>{% endif %}
       {% if rivalry.last_90_days.nemesis %}
-      <p class="badge badge-danger">Nemesis: <a href="/players/{{ rivalry.last_90_days.nemesis.player_id }}">{{ rivalry.last_90_days.nemesis.player_name }}</a></p>
-      {% else %}<p class="muted">—</p>{% endif %}
+      <p class="badge badge-danger rivalry-nem">Nemesis: <a href="/players/{{ rivalry.last_90_days.nemesis.player_id }}">{{ rivalry.last_90_days.nemesis.player_name }}</a></p>
+      {% else %}<p class="muted rivalry-nem">—</p>{% endif %}
     </div>
     <div>
       <h3>Last 12 months</h3>
       {% if rivalry.last_12_months.best_friend %}
-      <p class="badge badge-success">Best Friend: <a href="/players/{{ rivalry.last_12_months.best_friend.player_id }}">{{ rivalry.last_12_months.best_friend.player_name }}</a></p>
-      {% else %}<p class="muted">—</p>{% endif %}
+      <p class="badge badge-success rivalry-bf">Best Friend: <a href="/players/{{ rivalry.last_12_months.best_friend.player_id }}">{{ rivalry.last_12_months.best_friend.player_name }}</a></p>
+      {% else %}<p class="muted rivalry-bf">—</p>{% endif %}
       {% if rivalry.last_12_months.nemesis %}
-      <p class="badge badge-danger">Nemesis: <a href="/players/{{ rivalry.last_12_months.nemesis.player_id }}">{{ rivalry.last_12_months.nemesis.player_name }}</a></p>
-      {% else %}<p class="muted">—</p>{% endif %}
+      <p class="badge badge-danger rivalry-nem">Nemesis: <a href="/players/{{ rivalry.last_12_months.nemesis.player_id }}">{{ rivalry.last_12_months.nemesis.player_name }}</a></p>
+      {% else %}<p class="muted rivalry-nem">—</p>{% endif %}
     </div>
   </div>
 </section>
@@ -292,7 +292,7 @@
       responsive: true,
       maintainAspectRatio: false,
       layout: {
-        padding: { bottom: 20 }
+        padding: { top: 10, right: 12, bottom: 32, left: 20 }
       },
       scales: {
         y: { beginAtZero: true },
@@ -300,7 +300,7 @@
           ticks: {
             maxRotation: 45,
             minRotation: 45,
-            maxTicksLimit: 12,
+            maxTicksLimit: 10,
             autoSkip: true
           }
         }

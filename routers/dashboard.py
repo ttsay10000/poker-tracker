@@ -97,6 +97,9 @@ async def dashboard(
                 "avg_per_game": avg,
                 "net_stddev": stddev,
             })
+        # Superlatives (Highlights): always Harper crew only
+        harper_rows = [r for r in rows if getattr(r["player"], "harper_crew", False)]
+
         # Table: optionally restrict to Harper crew only
         if filter_table_harper_crew_only:
             rows = [r for r in rows if getattr(r["player"], "harper_crew", False)]
@@ -104,11 +107,11 @@ async def dashboard(
         # Harper crew first, then by name
         rows.sort(key=lambda r: (not getattr(r["player"], "harper_crew", False), r["player"].name.lower()))
 
-        # Superlatives (require at least 1 game for winner/loser; 5+ for consistency)
+        # Superlatives from harper_rows (require at least 1 game for winner/loser; 5+ for consistency)
         min_games_consistency = 5
-        lifetime_winner = max(rows, key=lambda r: r["lifetime_net"]) if rows else None
-        lifetime_loser = min(rows, key=lambda r: r["lifetime_net"]) if rows else None
-        rows_with_consistency = [r for r in rows if r.get("net_stddev") is not None and r["games_played"] >= min_games_consistency]
+        lifetime_winner = max(harper_rows, key=lambda r: r["lifetime_net"]) if harper_rows else None
+        lifetime_loser = min(harper_rows, key=lambda r: r["lifetime_net"]) if harper_rows else None
+        rows_with_consistency = [r for r in harper_rows if r.get("net_stddev") is not None and r["games_played"] >= min_games_consistency]
         most_consistent = min(rows_with_consistency, key=lambda r: r["net_stddev"]) if rows_with_consistency else None
         most_inconsistent = max(rows_with_consistency, key=lambda r: r["net_stddev"]) if rows_with_consistency else None
         superlatives = {

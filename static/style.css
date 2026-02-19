@@ -126,9 +126,13 @@ ul.error li { color: var(--danger); }
 .badge-danger { background: rgba(248, 81, 73, 0.25); color: var(--danger); }
 
 /* Dashboard actions */
-.dashboard-actions { margin-bottom: 1.5rem; display: flex; gap: 0.75rem; flex-wrap: wrap; }
-.chart-container { background: var(--card); border-radius: 8px; padding: 1rem; margin: 1rem 0; height: 320px; }
-.rivalry-windows { margin-top: 2.5rem; }
+.dashboard-actions { margin-bottom: 1.5rem; display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center; }
+.dashboard-actions .btn { min-height: 2.5rem; line-height: 1.5; box-sizing: border-box; vertical-align: middle; }
+.dashboard-action-form { display: inline-flex; align-items: stretch; }
+.dashboard-action-form .btn { height: 2.5rem; }
+.chart-container { background: var(--card); border-radius: 8px; padding: 1rem 1rem 2rem 1rem; margin: 1rem 0 2rem 0; height: 560px; }
+.rivalry-windows { margin-top: 3rem; }
+.rivalry-windows > p.muted { margin-bottom: 1rem; }
 
 /* Superlatives box (dashboard highlights) */
 .superlatives-box {
@@ -234,8 +238,10 @@ ul.error li { color: var(--danger); }
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.75rem 1.5rem; }
 .stats-grid > div { font-size: 0.95rem; }
 .stats-grid .muted { display: block; font-size: 0.8rem; margin-bottom: 0.2rem; }
-.rivalry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
+.rivalry-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1.5rem 2rem; align-items: start; }
 .rivalry-grid h3 { font-size: 1rem; margin-bottom: 0.5rem; }
+.rivalry-grid .rivalry-bf { min-height: 2.75em; display: block; margin-bottom: 0.35rem; }
+.rivalry-grid .rivalry-nem { min-height: 2.75em; display: block; }
 .rivalry-badges-inline { margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .rivalry-badges-inline .badge { text-decoration: none; }
 .positive { color: var(--success); }
