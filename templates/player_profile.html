@@ -266,7 +266,12 @@
         <td class="muted">—</td>
         <td class="muted">—</td>
         <td>{{ row.note or '—' }}</td>
-        <td></td>
+        <td>
+          <a href="/settlements/expense/{{ row.expense_id }}/edit?next={{ ('/players/' ~ player.id) | urlencode }}" class="btn btn-small btn-secondary">Edit</a>
+          <form method="post" action="/settlements/expense/{{ row.expense_id }}/delete?next={{ ('/players/' ~ player.id) | urlencode }}" style="display:inline;" onsubmit="return confirm('Delete this expense?');">
+            <button type="submit" class="btn btn-small btn-danger">Delete</button>
+          </form>
+        </td>
       </tr>
       {% endif %}
       {% endfor %}

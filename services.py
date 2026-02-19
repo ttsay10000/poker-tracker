@@ -2,7 +2,7 @@
 import math
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from sqlmodel import Session, col, func, select
 from sqlmodel.sql.expression import Select
@@ -52,8 +52,55 @@ def expense_total(session: Session, player_id: str) -> Decimal:
 
 
 def outstanding(session: Session, player_id: str) -> Decimal:
-    """Lifetime net from games + expenses (charges) − settlements. Game stats use only lifetime_net from games."""
-    return lifetime_net(session, player_id) + expense_total(session, player_id) - settled_net(session, player_id)
+    """Lifetime net from games − expenses (charges) − settlements. Positive = organizer owes player; negative = player owes organizer. Game stats use only lifetime_net from games."""
+    return lifetime_net(session, player_id) - expense_total(session, player_id) - settled_net(session, player_id)
+
+
+def get_expense_groups_for_finances(session: Session) -> list[dict[str, Any]]:
+    """List expense groups (from Add charge) and ungrouped single expenses for the finances page. Most recent first."""
+    all_expenses = list(session.exec(select(Expense).order_by(Expense.created_at.desc())).all())
+    player_ids = {e.player_id for e in all_expenses}
+    players = {p.id: p for p in session.exec(select(Player).where(Player.id.in_(player_ids))).all()} if player_ids else {}
+
+    groups: dict[str, dict[str, Any]] = {}
+    single_expenses: list[dict[str, Any]] = []
+
+    for e in all_expenses:
+        if e.expense_group_id:
+            g = groups.get(e.expense_group_id)
+            if not g:
+                g = {
+                    "expense_group_id": e.expense_group_id,
+                    "note": e.note or "",
+                    "amount_per_player": e.amount,
+                    "total": Decimal(0),
+                    "player_count": 0,
+                    "player_names": [],
+                    "created_at": e.created_at,
+                }
+                groups[e.expense_group_id] = g
+            g["total"] += e.amount
+            g["player_count"] += 1
+            g["player_names"].append(players.get(e.player_id).name if players.get(e.player_id) else e.player_id)
+            if e.created_at and (not g.get("created_at") or e.created_at > g["created_at"]):
+                g["created_at"] = e.created_at
+        else:
+            single_expenses.append({
+                "id": e.id,
+                "note": e.note or "",
+                "amount": e.amount,
+                "player_name": players.get(e.player_id).name if players.get(e.player_id) else e.player_id,
+                "player_id": e.player_id,
+                "created_at": e.created_at,
+            })
+
+    out = []
+    for g in groups.values():
+        out.append({"kind": "group", **g})
+    for s in single_expenses:
+        out.append({"kind": "single", **s})
+    out.sort(key=lambda x: x["created_at"] or datetime.min, reverse=True)
+    return out
 
 
 def games_played_count(session: Session, player_id: str) -> int:

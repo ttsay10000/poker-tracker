@@ -1,4 +1,5 @@
 """Record settlement (payment). amount > 0 = organizer paid player; < 0 = player paid organizer."""
+import uuid
 from datetime import date
 from decimal import Decimal
 
@@ -10,7 +11,7 @@ from auth import require_admin
 from config import BASE_DIR
 from database import engine
 from models import Expense, Player, Settlement
-from services import get_active_players, get_player_by_id, outstanding
+from services import get_active_players, get_expense_groups_for_finances, get_player_by_id, outstanding
 from templating import templates
 
 router = APIRouter()
@@ -30,6 +31,7 @@ async def finances_page(request: Request, player_id: str = ""):
     flash_message = request.query_params.get("flash", "").replace("+", " ")
     with Session(engine) as session:
         players = get_active_players(session)
+        expense_groups = get_expense_groups_for_finances(session)
     return templates.TemplateResponse(
         "finances.html",
         {
@@ -39,6 +41,7 @@ async def finances_page(request: Request, player_id: str = ""):
             "today_iso": date.today().isoformat(),
             "flash_message": flash_message or None,
             "flash_type": "success" if flash_message else None,
+            "expense_groups": expense_groups,
         },
     )
 
@@ -75,6 +78,7 @@ async def charge_post(request: Request):
         return RedirectResponse(url="/settlements?charge_error=invalid_amount#add-charge", status_code=302)
     if amount <= 0:
         return RedirectResponse(url="/settlements?charge_error=zero_amount#add-charge", status_code=302)
+    group_id = str(uuid.uuid4())
     with Session(engine) as session:
         if apply_to == "harper_crew":
             players = list(session.exec(select(Player).where(Player.is_active == True).where(Player.harper_crew == True).order_by(Player.name)).all())
@@ -83,11 +87,83 @@ async def charge_post(request: Request):
         if not players:
             return RedirectResponse(url="/settlements?charge_error=no_players#add-charge", status_code=302)
         for p in players:
-            session.add(Expense(player_id=p.id, amount=amount, note=note))
+            session.add(Expense(player_id=p.id, amount=amount, note=note, expense_group_id=group_id))
         session.commit()
     n = len(players)
     flash = f"Charge+recorded+for+{n}+player(s)"
     return RedirectResponse(url=f"/settlements?flash={flash}", status_code=302)
+
+
+@router.post("/expense-group/{group_id}/delete")
+async def delete_expense_group(request: Request, group_id: str):
+    """Delete all expenses in this group; removes that amount from each player's outstanding."""
+    if not require_admin(request):
+        return _redirect_login()
+    with Session(engine) as session:
+        expenses = list(session.exec(select(Expense).where(Expense.expense_group_id == group_id)).all())
+        for e in expenses:
+            session.delete(e)
+        session.commit()
+    return RedirectResponse(url="/settlements?flash=Charge+batch+deleted", status_code=302)
+
+
+@router.post("/expense/{expense_id}/delete")
+async def delete_expense(request: Request, expense_id: str):
+    """Delete a single expense; removes that amount from the player's outstanding."""
+    if not require_admin(request):
+        return _redirect_login()
+    redirect_url = (request.query_params.get("next") or "").strip() or "/settlements"
+    if not redirect_url.startswith("/"):
+        redirect_url = "/settlements"
+    with Session(engine) as session:
+        expense = session.get(Expense, expense_id)
+        if not expense:
+            return RedirectResponse(url="/settlements?flash=Expense+not+found", status_code=302)
+        session.delete(expense)
+        session.commit()
+    return RedirectResponse(url=redirect_url, status_code=302)
+
+
+@router.get("/expense/{expense_id}/edit", response_class=HTMLResponse)
+async def edit_expense_page(request: Request, expense_id: str):
+    if not require_admin(request):
+        return _redirect_login()
+    with Session(engine) as session:
+        expense = session.get(Expense, expense_id)
+        if not expense:
+            return RedirectResponse(url="/settlements?flash=Expense+not+found", status_code=302)
+        player = get_player_by_id(session, expense.player_id)
+    return templates.TemplateResponse(
+        "expense_edit.html",
+        {"request": request, "expense": expense, "player": player},
+    )
+
+
+@router.post("/expense/{expense_id}/edit")
+async def edit_expense_post(request: Request, expense_id: str):
+    if not require_admin(request):
+        return _redirect_login()
+    form = await request.form()
+    amount_str = (form.get("amount") or "0").strip().replace(",", "")
+    note = (form.get("note") or "").strip() or None
+    try:
+        amount = Decimal(amount_str)
+    except Exception:
+        return RedirectResponse(url=f"/settlements/expense/{expense_id}/edit?error=invalid_amount", status_code=302)
+    if amount <= 0:
+        return RedirectResponse(url=f"/settlements/expense/{expense_id}/edit?error=zero_amount", status_code=302)
+    with Session(engine) as session:
+        expense = session.get(Expense, expense_id)
+        if not expense:
+            return RedirectResponse(url="/settlements?flash=Expense+not+found", status_code=302)
+        expense.amount = amount
+        expense.note = note
+        session.add(expense)
+        session.commit()
+    next_url = (form.get("next") or "").strip() or "/settlements"
+    if not next_url.startswith("/"):
+        next_url = "/settlements"
+    return RedirectResponse(url=next_url, status_code=302)
 
 
 @router.post("/record")

@@ -70,6 +70,50 @@
   </form>
 </section>
 
+<section class="finances-section card" id="expense-record">
+  <h2>Expense record</h2>
+  <p class="muted">Charges added below. Deleting a batch removes that charge from each player's outstanding. You can also delete or edit individual expenses from a player's profile.</p>
+  {% if expense_groups %}
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Note</th>
+        <th>Per player</th>
+        <th>Players</th>
+        <th>Total charged</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in expense_groups %}
+      <tr>
+        <td>{{ row.created_at.strftime('%Y-%m-%d') if row.created_at else '—' }}</td>
+        <td>{{ row.note or '—' }}</td>
+        <td>{{ row.amount_per_player | signed_dollars if row.kind == 'group' else row.amount | signed_dollars }}</td>
+        <td>{% if row.kind == 'group' %}{{ row.player_names | join(', ') }} ({{ row.player_count }}){% else %}{{ row.player_name }}{% endif %}</td>
+        <td>{{ row.total | signed_dollars if row.kind == 'group' else row.amount | signed_dollars }}</td>
+        <td>
+          {% if row.kind == 'group' %}
+          <form method="post" action="/settlements/expense-group/{{ row.expense_group_id }}/delete" style="display:inline;" onsubmit="return confirm('Delete this charge batch? It will be removed from each player\'s outstanding.');">
+            <button type="submit" class="btn btn-small btn-danger">Delete batch</button>
+          </form>
+          {% else %}
+          <a href="/settlements/expense/{{ row.id }}/edit?next={{ request.url.path | urlencode }}" class="btn btn-small btn-secondary">Edit</a>
+          <form method="post" action="/settlements/expense/{{ row.id }}/delete?next={{ request.url.path | urlencode }}" style="display:inline;" onsubmit="return confirm('Delete this expense?');">
+            <button type="submit" class="btn btn-small btn-danger">Delete</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No expenses recorded yet.</p>
+  {% endif %}
+</section>
+
 {% endblock %}
 {% block scripts %}
 <script>

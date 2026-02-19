@@ -83,5 +83,6 @@ class Expense(SQLModel, table=True):
     amount: Decimal = Field()  # >0 = player owes this much (outstanding until settled)
     note: Optional[str] = Field(default=None, max_length=512)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    expense_group_id: Optional[str] = Field(default=None, max_length=36)  # links expenses from one "Add charge" action for bulk delete
 
     player: Optional[Player] = Relationship(back_populates="expenses")
