@@ -38,9 +38,39 @@
         if (continueBtn && continueBtn.textContent.indexOf('Continue to Confirm') !== -1) {
           continueBtn.addEventListener('click', function (e) {
             e.preventDefault();
-            // Clear any previous validation message
             var validationMsg = document.getElementById('review-validation-message');
             if (validationMsg) validationMsg.remove();
+
+            // Sync server-rendered (e.g. LLM) player selections into select values right before validation
+            reviewForm.querySelectorAll('.player-select[data-player-options]').forEach(function (sel) {
+              var selectedOpt = sel.querySelector('option[selected]');
+              if (selectedOpt && selectedOpt.value && selectedOpt.value !== '') {
+                sel.value = selectedOpt.value;
+              }
+            });
+
+            // Custom validation for player rows: don't rely on browser required; check each select has a value
+            var playerSelects = reviewForm.querySelectorAll('.player-select[data-player-options]');
+            var firstEmpty = null;
+            playerSelects.forEach(function (sel) {
+              if (sel.closest('tr') && sel.closest('tr').classList.contains('row-template')) return;
+              var val = (sel.value || '').trim();
+              if (val === '' || val === undefined) firstEmpty = firstEmpty || sel;
+            });
+            if (firstEmpty) {
+              firstEmpty.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              firstEmpty.focus();
+              var msg = document.createElement('p');
+              msg.id = 'review-validation-message';
+              msg.setAttribute('role', 'alert');
+              msg.className = 'error';
+              msg.style.marginTop = '1rem';
+              msg.style.marginBottom = '0';
+              msg.textContent = 'Please assign a player to every row (each "Player" dropdown must have a selection).';
+              continueBtn.closest('div').appendChild(msg);
+              return;
+            }
+
             if (reviewForm.checkValidity()) {
               showLoading('Continuing to confirm…');
               reviewForm.submit();
@@ -51,14 +81,13 @@
                 firstInvalid.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 firstInvalid.focus();
               }
-              // Show a visible message so user knows why the button didn't submit
               var msg = document.createElement('p');
               msg.id = 'review-validation-message';
               msg.setAttribute('role', 'alert');
               msg.className = 'error';
               msg.style.marginTop = '1rem';
               msg.style.marginBottom = '0';
-              msg.textContent = 'Please fix the highlighted field(s) above: assign a player to every row and fill any required fields, then try again.';
+              msg.textContent = 'Please fix the highlighted field(s) above (e.g. game date or net change), then try again.';
               continueBtn.closest('div').appendChild(msg);
             }
           });
