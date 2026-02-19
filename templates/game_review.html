@@ -126,7 +126,7 @@
           <td>{{ r.buyin or '—' }}</td>
           <td>{{ r.cashout or '—' }}</td>
           <td>{{ r.final_stack or '—' }}</td>
-          <td>{{ r.net_change or '—' }}</td>
+          <td class="{% if r.net_change is not none and r.net_change > 0 %}positive{% elif r.net_change is not none and r.net_change < 0 %}negative{% endif %}">{% if r.net_change is not none %}{{ "${:,.2f}".format(r.net_change) }}{% else %}—{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>

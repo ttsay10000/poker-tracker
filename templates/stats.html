@@ -28,7 +28,7 @@
     <tr>
       <th>Player</th>
       <th>Total net</th>
-      <th>Games</th>
+      <th>Games played</th>
       <th>Win rate</th>
       <th>Avg net/game</th>
       <th>Avg buy-in</th>
@@ -46,9 +46,9 @@
       <td class="{% if r.total_net > 0 %}positive{% elif r.total_net < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.total_net) }}</td>
       <td>{{ r.games_played }}</td>
       <td>{% if r.win_rate is not none %}{{ "%.1f" % (r.win_rate * 100) }}%{% else %}—{% endif %}</td>
-      <td>{% if r.avg_net_per_game is not none %}{{ "${:,.2f}".format(r.avg_net_per_game) }}{% else %}—{% endif %}</td>
+      <td class="{% if r.avg_net_per_game is not none and r.avg_net_per_game > 0 %}positive{% elif r.avg_net_per_game is not none and r.avg_net_per_game < 0 %}negative{% endif %}">{% if r.avg_net_per_game is not none %}{{ "${:,.2f}".format(r.avg_net_per_game) }}{% else %}—{% endif %}</td>
       <td>{% if r.avg_buyin is not none %}{{ "${:,.2f}".format(r.avg_buyin) }}{% else %}—{% endif %}</td>
-      <td>{{ "${:,.2f}".format(r.outstanding) }}</td>
+      <td class="{% if r.outstanding > 0 %}positive{% elif r.outstanding < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.outstanding) }}</td>
       <td>
         <a href="/players/{{ r.player.id }}" class="btn btn-small btn-primary">Profile</a>
       </td>

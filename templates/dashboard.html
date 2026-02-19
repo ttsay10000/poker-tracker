@@ -74,7 +74,7 @@
     <tr>
       <th class="sortable-th" data-sort="player" data-type="text">Player <span class="sort-icon"></span></th>
       <th class="sortable-th" data-sort="lifetime_net" data-type="num">Total net <span class="sort-icon"></span></th>
-      <th class="sortable-th" data-sort="games_played" data-type="num">Games <span class="sort-icon"></span></th>
+      <th class="sortable-th" data-sort="games_played" data-type="num">Games played <span class="sort-icon"></span></th>
       <th class="sortable-th" data-sort="avg_per_game" data-type="num">Avg/game <span class="sort-icon"></span></th>
       <th class="sortable-th" data-sort="outstanding" data-type="num">Outstanding <span class="sort-icon"></span></th>
       <th>Status</th>
@@ -90,10 +90,10 @@
         <span class="badge badge-info" title="Harper crew">HC</span>
         {% endif %}
       </td>
-      <td>{{ "${:,.2f}".format(r.lifetime_net) }}</td>
+      <td class="{% if r.lifetime_net > 0 %}positive{% elif r.lifetime_net < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.lifetime_net) }}</td>
       <td>{{ r.games_played }}</td>
-      <td>{% if r.avg_per_game is not none %}{{ "${:,.2f}".format(r.avg_per_game) }}{% else %}—{% endif %}</td>
-      <td>{{ "${:,.2f}".format(r.outstanding) }}</td>
+      <td class="{% if r.avg_per_game is not none and r.avg_per_game > 0 %}positive{% elif r.avg_per_game is not none and r.avg_per_game < 0 %}negative{% endif %}">{% if r.avg_per_game is not none %}{{ "${:,.2f}".format(r.avg_per_game) }}{% else %}—{% endif %}</td>
+      <td class="{% if r.outstanding > 0 %}positive{% elif r.outstanding < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.outstanding) }}</td>
       <td>
         {% if r.outstanding > 0 %}
         <span class="badge badge-success">Organizer owes</span>

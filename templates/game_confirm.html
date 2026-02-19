@@ -35,7 +35,7 @@
       {% if r.player_id %}
       <tr>
         <td>{{ player_names.get(r.player_id, r.raw_name or r.player_id) }}</td>
-        <td>{{ "${:,.2f}".format(r.net_change) if r.net_change is not none else '—' }}</td>
+        <td class="{% if r.net_change is not none and r.net_change > 0 %}positive{% elif r.net_change is not none and r.net_change < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.net_change) if r.net_change is not none else '—' }}</td>
       </tr>
       {% endif %}
       {% endfor %}
@@ -98,7 +98,7 @@
       {% if r.player_id %}
       <tr>
         <td>{{ player_names.get(r.player_id, r.raw_name or r.player_id) }}</td>
-        <td>{{ "${:,.2f}".format(r.net_change) if r.net_change is not none else '—' }}</td>
+        <td class="{% if r.net_change is not none and r.net_change > 0 %}positive{% elif r.net_change is not none and r.net_change < 0 %}negative{% endif %}">{{ "${:,.2f}".format(r.net_change) if r.net_change is not none else '—' }}</td>
       </tr>
       {% endif %}
       {% endfor %}
