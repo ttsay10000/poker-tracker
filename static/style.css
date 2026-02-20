@@ -255,6 +255,18 @@ ul.error li { color: var(--danger); }
 .rivalry-grid .rivalry-nem { min-height: 2.75em; display: block; }
 .rivalry-badges-inline { margin: 0.5rem 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .rivalry-badges-inline .badge { text-decoration: none; }
+/* Links inside badges: inherit badge color for readability (no blue/purple on colored bg) */
+.badge-success a,
+.badge-danger a { color: inherit; text-decoration: underline; font-weight: 600; }
+.badge-success a:hover { color: var(--text); }
+.badge-danger a:hover { color: #fff; }
+/* Nemesis (rivalry) badges: lighter text so names are readable on red background */
+.rivalry-grid .badge-danger,
+.rivalry-badges-inline .badge-danger { background: rgba(248, 81, 73, 0.4); color: #ffb4ae; }
+.rivalry-grid .badge-danger a,
+.rivalry-badges-inline .badge-danger a { color: #ffb4ae; }
+.rivalry-grid .badge-danger a:hover,
+.rivalry-badges-inline .badge-danger a:hover { color: #fff; }
 .positive { color: var(--success); }
 .negative { color: var(--danger); }
 .neutral { color: var(--muted); }
