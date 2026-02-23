@@ -31,15 +31,12 @@
       <td>{% if item.balanced %}✅{% else %}No{% endif %} {% if item.paid_up %}<span class="badge badge-info" style="margin-left:0.25rem;">Paid up</span>{% endif %}</td>
       <td>{{ item.game.created_at.strftime('%Y-%m-%d %H:%M') if item.game.created_at else '—' }}</td>
       <td>
-        {% if item.paid_up %}
-        <form method="post" action="/games/{{ item.game.id }}/mark-not-paid-up" style="display:inline;" onsubmit="return confirm('Are you sure? This will add this game\'s balances back to outstanding debts.');">
-          <button type="submit" class="btn btn-small btn-secondary">Mark as unpaid</button>
-        </form>
-        {% else %}
         <form method="post" action="/games/{{ item.game.id }}/mark-paid-up" style="display:inline;" onsubmit="return confirm('Mark this game as paid up? Outstanding balances for this game will be cleared.');">
           <button type="submit" class="btn btn-small btn-primary">Mark as paid</button>
         </form>
-        {% endif %}
+        <form method="post" action="/games/{{ item.game.id }}/mark-not-paid-up" style="display:inline;" onsubmit="return confirm('Are you sure? This will add this game\'s balances back to outstanding debts.');">
+          <button type="submit" class="btn btn-small btn-secondary">Mark as unpaid</button>
+        </form>
         <a href="/games/{{ item.game.id }}" class="btn btn-small btn-secondary">View / Edit</a>
         <a href="/games/{{ item.game.id }}/delete" class="btn btn-small btn-danger" style="margin-left:0.25rem;">Delete</a>
       </td>

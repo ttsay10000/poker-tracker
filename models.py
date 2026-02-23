@@ -85,5 +85,6 @@ class Expense(SQLModel, table=True):
     note: Optional[str] = Field(default=None, max_length=512)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     expense_group_id: Optional[str] = Field(default=None, max_length=36)  # links expenses from one "Add charge" action for bulk delete
+    deleted_at: Optional[datetime] = Field(default=None)  # set when "deleted"; restore clears it to add back to outstanding
 
     player: Optional[Player] = Relationship(back_populates="expenses")

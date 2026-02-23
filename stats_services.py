@@ -278,7 +278,7 @@ def player_activity_log(
         c = session.exec(select(func.count(GameEntry.id)).where(GameEntry.game_id == gid)).one()
         counts[gid] = c or 0
 
-    q = select(Expense).where(Expense.player_id == player_id).order_by(Expense.created_at)
+    q = select(Expense).where(Expense.player_id == player_id).where(Expense.deleted_at.is_(None)).order_by(Expense.created_at)
     if date_from:
         q = q.where(col(Expense.created_at) >= datetime.combine(date_from, datetime.min.time()))
     if date_to:

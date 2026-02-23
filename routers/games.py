@@ -122,8 +122,8 @@ async def game_list(request: Request, flash: str = ""):
             total_buyins = sum((e.buyin or Decimal(0)) for e in entries)
             total_cashouts = sum((e.cashout or Decimal(0)) for e in entries)
             balanced = abs(total_net) <= BALANCE_EPSILON
-            # Discrepancy = (cashouts + final_stacks) - buyins = sum of net_change per game
-            game_discrepancy = total_net
+            # Discrepancy sign: positive net = game lost value → show negative; negative net = game gained value → show positive
+            game_discrepancy = -total_net
             total_discrepancy += game_discrepancy
             key = _game_totals_key(total_buyins, total_cashouts, total_net)
             totals_keys.append(key)
@@ -908,10 +908,13 @@ async def game_mark_not_paid_up_post(request: Request, game_id: str):
         game = session.get(Game, game_id)
         if not game:
             return RedirectResponse(url="/games", status_code=302)
-        for s in settlements_for_game(session, game_id):
+        to_delete = settlements_for_game(session, game_id)
+        if not to_delete:
+            return RedirectResponse(url="/games?flash=Game+already+unpaid+(no+payments+to+remove).", status_code=302)
+        for s in to_delete:
             session.delete(s)
         session.commit()
-    return RedirectResponse(url="/games?flash=Game+marked+as+not+paid+up.+Balances+added+to+outstanding.", status_code=302)
+    return RedirectResponse(url="/games?flash=Game+marked+as+unpaid.+Balances+added+back+to+outstanding.", status_code=302)
 
 
 @router.post("/{game_id}/mark-paid-up", response_class=HTMLResponse)
@@ -929,6 +932,8 @@ async def game_mark_paid_up_post(request: Request, game_id: str):
         if settlements_for_game(session, game_id):
             return RedirectResponse(url="/games?flash=Game+already+marked+as+paid+up.", status_code=302)
         entries = list(session.exec(select(GameEntry).where(GameEntry.game_id == game_id)).all())
+        if not entries:
+            return RedirectResponse(url="/games?flash=Game+has+no+entries.", status_code=302)
         settled_at = game.played_at.date() if game.played_at else date.today()
         for e in entries:
             if e.net_change is not None:

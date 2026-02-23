@@ -132,6 +132,47 @@
   {% endif %}
 </section>
 
+{% if deleted_expense_groups %}
+<section class="finances-section card" id="deleted-expenses" style="border-color: var(--warning, #e0a000); margin-top: 1.5rem;">
+  <h2>Deleted charges (add back to outstanding)</h2>
+  <p class="muted">Restore a deleted charge or batch to add it back to outstanding debt.</p>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Deleted</th>
+        <th>Note</th>
+        <th>Per player</th>
+        <th>Players</th>
+        <th>Total</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in deleted_expense_groups %}
+      <tr>
+        <td>{{ row.deleted_at.strftime('%Y-%m-%d %H:%M') if row.deleted_at else '—' }}</td>
+        <td>{{ row.note or '—' }}</td>
+        <td>{{ row.amount_per_player | signed_dollars if row.kind == 'group' else row.amount | signed_dollars }}</td>
+        <td>{% if row.kind == 'group' %}{{ row.player_names | join(', ') }} ({{ row.player_count }}){% else %}{{ row.player_name }}{% endif %}</td>
+        <td>{{ row.total | signed_dollars if row.kind == 'group' else row.amount | signed_dollars }}</td>
+        <td>
+          {% if row.kind == 'group' %}
+          <form method="post" action="/settlements/expense-group/{{ row.expense_group_id }}/restore" style="display:inline;" onsubmit="return confirm('Restore this charge batch? It will be added back to each player\'s outstanding.');">
+            <button type="submit" class="btn btn-small btn-primary">Restore batch (mark as unpaid)</button>
+          </form>
+          {% else %}
+          <form method="post" action="/settlements/expense/{{ row.id }}/restore?next={{ request.url.path | urlencode }}" style="display:inline;" onsubmit="return confirm('Restore this expense? It will be added back to outstanding.');">
+            <button type="submit" class="btn btn-small btn-primary">Restore (mark as unpaid)</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
 {% endblock %}
 {% block scripts %}
 <script>

@@ -49,9 +49,11 @@ def settled_net(session: Session, player_id: str) -> Decimal:
 
 
 def expense_total(session: Session, player_id: str) -> Decimal:
-    """Sum of non-game charges for this player (positive = they owe)."""
+    """Sum of non-game charges for this player (positive = they owe). Excludes soft-deleted."""
     r = session.exec(
-        select(func.coalesce(func.sum(Expense.amount), 0)).where(Expense.player_id == player_id)
+        select(func.coalesce(func.sum(Expense.amount), 0))
+        .where(Expense.player_id == player_id)
+        .where(Expense.deleted_at.is_(None))
     ).one()
     return Decimal(str(r))
 
@@ -62,8 +64,10 @@ def outstanding(session: Session, player_id: str) -> Decimal:
 
 
 def get_expense_groups_for_finances(session: Session) -> list[dict[str, Any]]:
-    """List expense groups (from Add charge) and ungrouped single expenses for the finances page. Most recent first."""
-    all_expenses = list(session.exec(select(Expense).order_by(Expense.created_at.desc())).all())
+    """List expense groups (from Add charge) and ungrouped single expenses for the finances page. Most recent first. Excludes soft-deleted."""
+    all_expenses = list(
+        session.exec(select(Expense).where(Expense.deleted_at.is_(None)).order_by(Expense.created_at.desc())).all()
+    )
     player_ids = {e.player_id for e in all_expenses}
     players = {p.id: p for p in session.exec(select(Player).where(Player.id.in_(player_ids))).all()} if player_ids else {}
 
@@ -105,6 +109,59 @@ def get_expense_groups_for_finances(session: Session) -> list[dict[str, Any]]:
     for s in single_expenses:
         out.append({"kind": "single", **s})
     out.sort(key=lambda x: x["created_at"] or datetime.min, reverse=True)
+    return out
+
+
+def get_deleted_expense_groups_for_finances(session: Session) -> list[dict[str, Any]]:
+    """List soft-deleted expense groups and single expenses for the finances page (Restore = add back to outstanding)."""
+    all_expenses = list(
+        session.exec(select(Expense).where(Expense.deleted_at.isnot(None)).order_by(Expense.deleted_at.desc())).all()
+    )
+    if not all_expenses:
+        return []
+    player_ids = {e.player_id for e in all_expenses}
+    players = {p.id: p for p in session.exec(select(Player).where(Player.id.in_(player_ids))).all()} if player_ids else {}
+
+    groups: dict[str, dict[str, Any]] = {}
+    single_expenses: list[dict[str, Any]] = []
+
+    for e in all_expenses:
+        if e.expense_group_id:
+            g = groups.get(e.expense_group_id)
+            if not g:
+                g = {
+                    "expense_group_id": e.expense_group_id,
+                    "note": e.note or "",
+                    "amount_per_player": e.amount,
+                    "total": Decimal(0),
+                    "player_count": 0,
+                    "player_names": [],
+                    "created_at": e.created_at,
+                    "deleted_at": e.deleted_at,
+                }
+                groups[e.expense_group_id] = g
+            g["total"] += e.amount
+            g["player_count"] += 1
+            g["player_names"].append(players.get(e.player_id).name if players.get(e.player_id) else e.player_id)
+            if e.deleted_at and (not g.get("deleted_at") or e.deleted_at > g.get("deleted_at")):
+                g["deleted_at"] = e.deleted_at
+        else:
+            single_expenses.append({
+                "id": e.id,
+                "note": e.note or "",
+                "amount": e.amount,
+                "player_name": players.get(e.player_id).name if players.get(e.player_id) else e.player_id,
+                "player_id": e.player_id,
+                "created_at": e.created_at,
+                "deleted_at": e.deleted_at,
+            })
+
+    out = []
+    for g in groups.values():
+        out.append({"kind": "group", **g})
+    for s in single_expenses:
+        out.append({"kind": "single", **s})
+    out.sort(key=lambda x: x.get("deleted_at") or datetime.min, reverse=True)
     return out
 
 

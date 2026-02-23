@@ -1,6 +1,6 @@
 """Record settlement (payment). amount > 0 = organizer paid player; < 0 = player paid organizer."""
 import uuid
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Request, Response
@@ -11,7 +11,7 @@ from auth import require_admin, check_payment_unlocked_redirect, set_payment_unl
 from config import BASE_DIR, PAYMENT_PASSWORD
 from database import engine
 from models import Expense, Player, Settlement
-from services import get_active_players, get_expense_groups_for_finances, get_player_by_id, outstanding
+from services import get_active_players, get_deleted_expense_groups_for_finances, get_expense_groups_for_finances, get_player_by_id, outstanding
 from templating import templates
 
 router = APIRouter()
@@ -55,6 +55,7 @@ async def finances_page(request: Request, player_id: str = "", unlock: str = "",
     with Session(engine) as session:
         players = get_active_players(session)
         expense_groups = get_expense_groups_for_finances(session)
+        deleted_expense_groups = get_deleted_expense_groups_for_finances(session)
     return templates.TemplateResponse(
         "finances.html",
         {
@@ -65,6 +66,7 @@ async def finances_page(request: Request, player_id: str = "", unlock: str = "",
             "flash_message": flash_message or None,
             "flash_type": "success" if flash_message else None,
             "expense_groups": expense_groups,
+            "deleted_expense_groups": deleted_expense_groups,
             "show_unlock": show_unlock,
             "unlock_error": unlock_error,
             "unlock_next": next_url,
@@ -125,23 +127,44 @@ async def charge_post(request: Request):
 
 @router.post("/expense-group/{group_id}/delete")
 async def delete_expense_group(request: Request, group_id: str):
-    """Delete all expenses in this group; removes that amount from each player's outstanding."""
+    """Soft-delete all expenses in this group; removes that amount from outstanding. Restore adds back."""
     if not require_admin(request):
         return _redirect_login()
     redir = check_payment_unlocked_redirect(request)
     if redir:
         return redir
     with Session(engine) as session:
-        expenses = list(session.exec(select(Expense).where(Expense.expense_group_id == group_id)).all())
+        expenses = list(session.exec(select(Expense).where(Expense.expense_group_id == group_id).where(Expense.deleted_at.is_(None))).all())
+        now = datetime.utcnow()
         for e in expenses:
-            session.delete(e)
+            e.deleted_at = now
+            session.add(e)
         session.commit()
-    return RedirectResponse(url="/settlements?flash=Charge+batch+deleted", status_code=302)
+    return RedirectResponse(url="/settlements?flash=Charge+batch+deleted.+You+can+restore+it+below+to+add+back+to+outstanding.", status_code=302)
+
+
+@router.post("/expense-group/{group_id}/restore")
+async def restore_expense_group(request: Request, group_id: str):
+    """Restore a soft-deleted expense group; adds those amounts back to outstanding."""
+    if not require_admin(request):
+        return _redirect_login()
+    redir = check_payment_unlocked_redirect(request)
+    if redir:
+        return redir
+    with Session(engine) as session:
+        expenses = list(session.exec(select(Expense).where(Expense.expense_group_id == group_id).where(Expense.deleted_at.isnot(None))).all())
+        if not expenses:
+            return RedirectResponse(url="/settlements?flash=Nothing+to+restore+or+already+restored", status_code=302)
+        for e in expenses:
+            e.deleted_at = None
+            session.add(e)
+        session.commit()
+    return RedirectResponse(url="/settlements?flash=Charge+batch+restored.+Added+back+to+outstanding.", status_code=302)
 
 
 @router.post("/expense/{expense_id}/delete")
 async def delete_expense(request: Request, expense_id: str):
-    """Delete a single expense; removes that amount from the player's outstanding."""
+    """Soft-delete a single expense; removes that amount from outstanding. Restore adds back."""
     if not require_admin(request):
         return _redirect_login()
     redir = check_payment_unlocked_redirect(request)
@@ -154,9 +177,36 @@ async def delete_expense(request: Request, expense_id: str):
         expense = session.get(Expense, expense_id)
         if not expense:
             return RedirectResponse(url="/settlements?flash=Expense+not+found", status_code=302)
-        session.delete(expense)
+        expense.deleted_at = datetime.utcnow()
+        session.add(expense)
         session.commit()
-    return RedirectResponse(url=redirect_url, status_code=302)
+    sep = "&" if "?" in redirect_url else "?"
+    return RedirectResponse(url=redirect_url + sep + "flash=Expense+deleted.+You+can+restore+it+below+to+add+back+to+outstanding.", status_code=302)
+
+
+@router.post("/expense/{expense_id}/restore")
+async def restore_expense(request: Request, expense_id: str):
+    """Restore a soft-deleted expense; adds that amount back to outstanding."""
+    if not require_admin(request):
+        return _redirect_login()
+    redir = check_payment_unlocked_redirect(request)
+    if redir:
+        return redir
+    redirect_url = (request.query_params.get("next") or "").strip() or "/settlements"
+    if not redirect_url.startswith("/"):
+        redirect_url = "/settlements"
+    with Session(engine) as session:
+        expense = session.get(Expense, expense_id)
+        if not expense:
+            return RedirectResponse(url="/settlements?flash=Expense+not+found", status_code=302)
+        if not expense.deleted_at:
+            sep = "&" if "?" in redirect_url else "?"
+            return RedirectResponse(url=redirect_url + sep + "flash=Expense+already+active", status_code=302)
+        expense.deleted_at = None
+        session.add(expense)
+        session.commit()
+    sep = "&" if "?" in redirect_url else "?"
+    return RedirectResponse(url=redirect_url + sep + "flash=Expense+restored.+Added+back+to+outstanding.", status_code=302)
 
 
 @router.get("/expense/{expense_id}/edit", response_class=HTMLResponse)
@@ -167,6 +217,8 @@ async def edit_expense_page(request: Request, expense_id: str):
         expense = session.get(Expense, expense_id)
         if not expense:
             return RedirectResponse(url="/settlements?flash=Expense+not+found", status_code=302)
+        if expense.deleted_at:
+            return RedirectResponse(url="/settlements?flash=Expense+was+deleted.+Restore+it+below+to+edit.", status_code=302)
         player = get_player_by_id(session, expense.player_id)
     return templates.TemplateResponse(
         "expense_edit.html",
@@ -194,6 +246,8 @@ async def edit_expense_post(request: Request, expense_id: str):
         expense = session.get(Expense, expense_id)
         if not expense:
             return RedirectResponse(url="/settlements?flash=Expense+not+found", status_code=302)
+        if expense.deleted_at:
+            return RedirectResponse(url="/settlements?flash=Expense+was+deleted.+Restore+it+first.", status_code=302)
         expense.amount = amount
         expense.note = note
         session.add(expense)
