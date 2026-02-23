@@ -235,6 +235,11 @@
 
   <div class="action-row">
     {% if edit_mode %}
+    {% if paid_up %}
+    <form method="post" action="/games/{{ game_id }}/mark-not-paid-up" style="display:inline;" onsubmit="return confirm('Are you sure? This will add this game\'s balances back to outstanding debts.');">
+      <button type="submit" class="btn btn-secondary" style="margin-right:0.5rem;">Mark not paid up</button>
+    </form>
+    {% endif %}
     <button type="submit" class="btn btn-primary">Save changes</button>
     <a href="/games/{{ game_id }}/delete" class="btn btn-danger" style="margin-left:0.5rem;">Delete game</a>
     {% else %}

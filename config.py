@@ -28,6 +28,8 @@ if DATABASE_URL.startswith("postgres://"):
 # Auth
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 SECRET_KEY = os.getenv("SECRET_KEY", ADMIN_PASSWORD or "dev-secret")
+# Password required to record payments / settled up / add charge / mark not paid up (ledger actions)
+PAYMENT_PASSWORD = os.getenv("PAYMENT_PASSWORD", "Snoopy&Me1216")
 
 # OpenAI (optional): for extracting game data from screenshots
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

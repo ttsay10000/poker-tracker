@@ -11,6 +11,11 @@ from config import BALANCE_EPSILON
 from models import Expense, Game, GameEntry, Player, Settlement
 
 
+def settlements_for_game(session: Session, game_id: str) -> list[Settlement]:
+    """Settlements linked to this game (e.g. from 'Paid up at game save')."""
+    return list(session.exec(select(Settlement).where(Settlement.game_id == game_id)).all())
+
+
 def normalize_name(name: str) -> str:
     return (name or "").strip().lower()
 

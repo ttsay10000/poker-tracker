@@ -65,6 +65,7 @@ class Settlement(SQLModel, table=True):
 
     id: str = Field(default_factory=new_uuid, primary_key=True)
     player_id: str = Field(foreign_key="player.id")
+    game_id: Optional[str] = Field(default=None, foreign_key="game.id")  # set when "Paid up at game save"
     settled_at: date = Field(default_factory=date.today)
     amount: Decimal = Field()  # >0 organizer paid player; <0 player paid organizer
     note: Optional[str] = Field(default=None, max_length=512)

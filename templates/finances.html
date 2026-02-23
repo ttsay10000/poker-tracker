@@ -3,6 +3,24 @@
 {% block content %}
 <h1>Finances</h1>
 
+{% if show_unlock %}
+<section class="finances-section card" style="border-color: var(--warning, #e0a000); margin-bottom: 1.5rem;">
+  <h2>Unlock payments &amp; ledger</h2>
+  <p class="muted">Enter the payment password to record payments, add charges, mark settled up, or mark games as not paid up.</p>
+  {% if unlock_error %}
+  <p class="error" role="alert">Incorrect password. Try again.</p>
+  {% endif %}
+  <form method="post" action="/settlements/unlock" class="finances-form">
+    <input type="hidden" name="next" value="{{ unlock_next or '/settlements' }}">
+    <label for="payment_password">Payment password</label>
+    <input type="password" id="payment_password" name="payment_password" required placeholder="Password" autocomplete="current-password">
+    <div style="margin-top:1rem;">
+      <button type="submit" class="btn btn-primary">Unlock</button>
+    </div>
+  </form>
+</section>
+{% endif %}
+
 <section class="finances-section card" id="record-payment">
   <h2>Record payments</h2>
   <p class="muted">Record a payment (you paid a player or they paid you). <a href="/settlements/record-batch">Record payments for multiple players</a></p>

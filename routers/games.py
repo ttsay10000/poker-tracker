@@ -10,13 +10,13 @@ from sqlmodel import Session, select
 
 from fastapi import APIRouter
 
-from auth import require_admin
+from auth import require_admin, check_payment_unlocked_redirect
 from config import BASE_DIR, BALANCE_EPSILON, UPLOADS_DIR, OPENAI_API_KEY, MAX_UPLOAD_SIZE_BYTES, PLAYER_ALIASES
 from database import engine
 from extract_game import extract_game
 from game_forms import parse_game_form, parse_multi_game_form
 from models import Game, GameEntry, Player, Settlement
-from services import get_active_players, has_any_settlements, settlements_affect_players, normalize_name
+from services import get_active_players, has_any_settlements, settlements_affect_players, settlements_for_game, normalize_name
 from templating import templates
 
 router = APIRouter()
@@ -122,18 +122,21 @@ async def game_list(request: Request, flash: str = ""):
             total_buyins = sum((e.buyin or Decimal(0)) for e in entries)
             total_cashouts = sum((e.cashout or Decimal(0)) for e in entries)
             balanced = abs(total_net) <= BALANCE_EPSILON
-            # Discrepancy per game = total net for that game; running total sums all games (recomputed each time)
-            total_discrepancy += total_net
+            # Discrepancy on games tab: buyins - cashouts (cashouts > buyins => negative)
+            game_discrepancy = total_buyins - total_cashouts
+            total_discrepancy += game_discrepancy
             key = _game_totals_key(total_buyins, total_cashouts, total_net)
             totals_keys.append(key)
+            paid_up = len(settlements_for_game(session, g.id)) > 0
             game_list_data.append({
                 "game": g,
                 "entry_count": len(entries),
                 "balanced": balanced,
                 "sum_net": total_net,
-                "discrepancy": total_net,
+                "discrepancy": game_discrepancy,
                 "total_buyins": total_buyins,
                 "total_cashouts": total_cashouts,
+                "paid_up": paid_up,
             })
         # Flag games that share the same (buyins, cashouts, net) as another (potential duplicate)
         key_counts: dict[tuple, int] = {}
@@ -691,6 +694,10 @@ async def save_post(request: Request, add_another: str = ""):
                 },
             )
         paid_up = fd.get("paid_up") in ("1", "on", "true", "yes")
+        if paid_up:
+            redir = check_payment_unlocked_redirect(request, next_url="/games/new")
+            if redir:
+                return redir
         try:
             with Session(engine) as session:
                 for g in data["games"]:
@@ -722,6 +729,7 @@ async def save_post(request: Request, add_another: str = ""):
                                 session.add(
                                     Settlement(
                                         player_id=r["player_id"],
+                                        game_id=game.id,
                                         settled_at=settled_at,
                                         amount=r["net_change"],
                                         note="Paid up at game save",
@@ -781,6 +789,10 @@ async def save_post(request: Request, add_another: str = ""):
             },
         )
     paid_up = fd.get("paid_up") in ("1", "on", "true", "yes")
+    if paid_up:
+        redir = check_payment_unlocked_redirect(request, next_url="/games/new")
+        if redir:
+            return redir
     try:
         with Session(engine) as session:
             _resolve_new_players(session, data["rows"])
@@ -810,6 +822,7 @@ async def save_post(request: Request, add_another: str = ""):
                         session.add(
                             Settlement(
                                 player_id=r["player_id"],
+                                game_id=game.id,
                                 settled_at=settled_at,
                                 amount=r["net_change"],
                                 note="Paid up at game save",
@@ -883,6 +896,24 @@ async def game_delete_post(request: Request, game_id: str):
     return RedirectResponse(url="/games?flash=Game+deleted.", status_code=302)
 
 
+@router.post("/{game_id}/mark-not-paid-up", response_class=HTMLResponse)
+async def game_mark_not_paid_up_post(request: Request, game_id: str):
+    """Remove settlements linked to this game; those balances become outstanding again."""
+    if not require_admin(request):
+        return _redirect_login()
+    redir = check_payment_unlocked_redirect(request, next_url=f"/games/{game_id}")
+    if redir:
+        return redir
+    with Session(engine) as session:
+        game = session.get(Game, game_id)
+        if not game:
+            return RedirectResponse(url="/games", status_code=302)
+        for s in settlements_for_game(session, game_id):
+            session.delete(s)
+        session.commit()
+    return RedirectResponse(url="/games?flash=Game+marked+as+not+paid+up.+Balances+added+to+outstanding.", status_code=302)
+
+
 # ---- Edit saved game ----
 @router.get("/{game_id}", response_class=HTMLResponse)
 async def game_edit_page(request: Request, game_id: str):
@@ -911,6 +942,7 @@ async def game_edit_page(request: Request, game_id: str):
         sum_net = sum(e.net_change for e in entries)
         balanced = abs(sum_net) <= BALANCE_EPSILON
         has_settlements = has_any_settlements(session)
+        paid_up = len(settlements_for_game(session, game_id)) > 0
     return templates.TemplateResponse(
         "game_review.html",
         {
@@ -929,6 +961,7 @@ async def game_edit_page(request: Request, game_id: str):
             "force_reason": "",
             "edit_mode": True,
             "has_settlements": has_settlements,
+            "paid_up": paid_up,
         },
     )
 

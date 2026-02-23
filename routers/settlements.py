@@ -3,12 +3,12 @@ import uuid
 from datetime import date
 from decimal import Decimal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlmodel import Session, select
 
-from auth import require_admin
-from config import BASE_DIR
+from auth import require_admin, check_payment_unlocked_redirect, set_payment_unlock_cookie
+from config import BASE_DIR, PAYMENT_PASSWORD
 from database import engine
 from models import Expense, Player, Settlement
 from services import get_active_players, get_expense_groups_for_finances, get_player_by_id, outstanding
@@ -21,14 +21,37 @@ def _redirect_login():
     return RedirectResponse(url="/login", status_code=302)
 
 
+@router.post("/unlock")
+async def unlock_post(request: Request):
+    """Verify payment password and set unlock cookie."""
+    if not require_admin(request):
+        return _redirect_login()
+    form = await request.form()
+    password = (form.get("payment_password") or "").strip()
+    next_url = (form.get("next") or request.query_params.get("next") or "").strip()
+    if not next_url.startswith("/"):
+        next_url = "/settlements"
+    if password != PAYMENT_PASSWORD:
+        return RedirectResponse(
+            url="/settlements?unlock=1&error=invalid_password" + ("&next=" + next_url if next_url != "/settlements" else ""),
+            status_code=302,
+        )
+    resp = RedirectResponse(url=next_url, status_code=302)
+    set_payment_unlock_cookie(resp)
+    return resp
+
+
 @router.get("", response_class=HTMLResponse)
 @router.get("/", response_class=HTMLResponse)
-async def finances_page(request: Request, player_id: str = ""):
+async def finances_page(request: Request, player_id: str = "", unlock: str = "", next_param: str = ""):
     """Combined Finances page: record payments and add global charge."""
     if not require_admin(request):
         return _redirect_login()
     preselect = (request.query_params.get("player_id") or player_id or "").strip()
     flash_message = request.query_params.get("flash", "").replace("+", " ")
+    show_unlock = unlock == "1"
+    unlock_error = request.query_params.get("error") == "invalid_password"
+    next_url = request.query_params.get("next") or next_param or ""
     with Session(engine) as session:
         players = get_active_players(session)
         expense_groups = get_expense_groups_for_finances(session)
@@ -42,6 +65,9 @@ async def finances_page(request: Request, player_id: str = ""):
             "flash_message": flash_message or None,
             "flash_type": "success" if flash_message else None,
             "expense_groups": expense_groups,
+            "show_unlock": show_unlock,
+            "unlock_error": unlock_error,
+            "unlock_next": next_url,
         },
     )
 
@@ -68,6 +94,9 @@ async def charge_post(request: Request):
     """Create one expense per selected player (Harper crew or all)."""
     if not require_admin(request):
         return _redirect_login()
+    redir = check_payment_unlocked_redirect(request)
+    if redir:
+        return redir
     form = await request.form()
     amount_str = (form.get("amount") or "0").strip().replace(",", "")
     note = (form.get("note") or "").strip() or None
@@ -99,6 +128,9 @@ async def delete_expense_group(request: Request, group_id: str):
     """Delete all expenses in this group; removes that amount from each player's outstanding."""
     if not require_admin(request):
         return _redirect_login()
+    redir = check_payment_unlocked_redirect(request)
+    if redir:
+        return redir
     with Session(engine) as session:
         expenses = list(session.exec(select(Expense).where(Expense.expense_group_id == group_id)).all())
         for e in expenses:
@@ -112,6 +144,9 @@ async def delete_expense(request: Request, expense_id: str):
     """Delete a single expense; removes that amount from the player's outstanding."""
     if not require_admin(request):
         return _redirect_login()
+    redir = check_payment_unlocked_redirect(request)
+    if redir:
+        return redir
     redirect_url = (request.query_params.get("next") or "").strip() or "/settlements"
     if not redirect_url.startswith("/"):
         redirect_url = "/settlements"
@@ -143,6 +178,9 @@ async def edit_expense_page(request: Request, expense_id: str):
 async def edit_expense_post(request: Request, expense_id: str):
     if not require_admin(request):
         return _redirect_login()
+    redir = check_payment_unlocked_redirect(request)
+    if redir:
+        return redir
     form = await request.form()
     amount_str = (form.get("amount") or "0").strip().replace(",", "")
     note = (form.get("note") or "").strip() or None
@@ -170,6 +208,9 @@ async def edit_expense_post(request: Request, expense_id: str):
 async def record_post(request: Request):
     if not require_admin(request):
         return _redirect_login()
+    redir = check_payment_unlocked_redirect(request)
+    if redir:
+        return redir
     form = await request.form()
     player_id = (form.get("player_id") or "").strip()
     amount_str = (form.get("amount") or "0").strip().replace(",", "")
@@ -204,6 +245,9 @@ async def settled_up_post(request: Request):
     """Record a single settlement that zeroes out the player's outstanding balance."""
     if not require_admin(request):
         return _redirect_login()
+    redir = check_payment_unlocked_redirect(request)
+    if redir:
+        return redir
     form = await request.form()
     player_id = (form.get("player_id") or "").strip()
     if not player_id:
@@ -226,6 +270,9 @@ async def settled_up_all_post(request: Request):
     """Record settlements that zero out every player's outstanding balance."""
     if not require_admin(request):
         return _redirect_login()
+    redir = check_payment_unlocked_redirect(request, next_url="/dashboard")
+    if redir:
+        return redir
     with Session(engine) as session:
         players = get_active_players(session)
         settled_count = 0
@@ -261,6 +308,9 @@ async def record_batch_post(request: Request):
     """Record multiple payments in one submit. Form: player_id[], amount[], direction[], note[]; single settled_at."""
     if not require_admin(request):
         return _redirect_login()
+    redir = check_payment_unlocked_redirect(request, next_url="/settlements/record-batch")
+    if redir:
+        return redir
     form = await request.form()
     date_str = form.get("settled_at") or ""
     settled_at = date.today()
