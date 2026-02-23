@@ -12,8 +12,46 @@ from models import Expense, Game, GameEntry, Player, Settlement
 
 
 def settlements_for_game(session: Session, game_id: str) -> list[Settlement]:
-    """Settlements linked to this game (e.g. from 'Paid up at game save')."""
+    """Settlements linked to this game (game_id set). Used to check if game is paid up and to delete when marking unpaid."""
     return list(session.exec(select(Settlement).where(Settlement.game_id == game_id)).all())
+
+
+def settlements_to_remove_for_game(session: Session, game_id: str) -> list[Settlement]:
+    """
+    All settlements that represent this game's payouts, so removing them adds each player's net_change back to outstanding.
+    - First: settlements with game_id = game_id (created by Mark as paid / Paid up at save).
+    - If none: legacy settlements (game_id is None) that match this game by date and (player_id, amount) per entry.
+    Outstanding = lifetime_net - expense_total - settled_net; deleting a settlement reduces settled_net, so outstanding
+    increases by that amount — i.e. that player's net for the game is added back to outstanding.
+    """
+    linked = settlements_for_game(session, game_id)
+    if linked:
+        return linked
+    game = session.get(Game, game_id)
+    if not game:
+        return []
+    entries = list(session.exec(select(GameEntry).where(GameEntry.game_id == game_id)).all())
+    if not entries:
+        return []
+    game_date = game.played_at.date() if game.played_at else None
+    if not game_date:
+        return []
+    # Legacy: find settlements with no game_id, same date, and (player_id, amount) matching an entry (1:1)
+    to_remove = []
+    for e in entries:
+        if e.net_change is None:
+            continue
+        one = session.exec(
+            select(Settlement)
+            .where(Settlement.game_id.is_(None))
+            .where(Settlement.player_id == e.player_id)
+            .where(Settlement.amount == e.net_change)
+            .where(Settlement.settled_at == game_date)
+            .limit(1)
+        ).first()
+        if one:
+            to_remove.append(one)
+    return to_remove
 
 
 def normalize_name(name: str) -> str:

@@ -2,7 +2,12 @@
 {% block title %}Games — Poker Tracker{% endblock %}
 {% block content %}
 <h1>Games</h1>
-<p><a href="/dashboard" class="btn btn-link">← Back to Dashboard</a></p>
+<p>
+  <a href="/dashboard" class="btn btn-link">← Back to Dashboard</a>
+  <form method="post" action="/games/mark-all-paid-up" style="display:inline; margin-left:0.5rem;" onsubmit="return confirm('Mark every game as paid up? This will create settlements for all games that are not yet paid. You can then mark individual games as unpaid to add those nets back to outstanding.');">
+    <button type="submit" class="btn btn-secondary btn-small">Mark all games as paid up</button>
+  </form>
+</p>
 <table id="games-table" class="sortable">
   <thead>
     <tr>

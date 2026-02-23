@@ -16,7 +16,7 @@ from database import engine
 from extract_game import extract_game
 from game_forms import parse_game_form, parse_multi_game_form
 from models import Game, GameEntry, Player, Settlement
-from services import get_active_players, has_any_settlements, settlements_affect_players, settlements_for_game, normalize_name
+from services import get_active_players, has_any_settlements, settlements_affect_players, settlements_for_game, settlements_to_remove_for_game, normalize_name
 from templating import templates
 
 router = APIRouter()
@@ -127,7 +127,7 @@ async def game_list(request: Request, flash: str = ""):
             total_discrepancy += game_discrepancy
             key = _game_totals_key(total_buyins, total_cashouts, total_net)
             totals_keys.append(key)
-            paid_up = len(settlements_for_game(session, g.id)) > 0
+            paid_up = len(settlements_to_remove_for_game(session, g.id)) > 0
             game_list_data.append({
                 "game": g,
                 "entry_count": len(entries),
@@ -856,6 +856,38 @@ async def game_saved_page(request: Request, n: str = "1"):
     return response
 
 
+@router.post("/mark-all-paid-up", response_class=HTMLResponse)
+async def mark_all_games_paid_up_post(request: Request):
+    """Create settlements for every game that is not yet paid up, so all game nets are settled (nothing in outstanding from games). You can then mark specific games as unpaid to add those nets back."""
+    if not require_admin(request):
+        return _redirect_login()
+    redir = check_payment_unlocked_redirect(request, next_url="/games")
+    if redir:
+        return redir
+    with Session(engine) as session:
+        games = list(session.exec(select(Game).order_by(Game.played_at)).all())
+        created = 0
+        for game in games:
+            if settlements_to_remove_for_game(session, game.id):
+                continue
+            entries = list(session.exec(select(GameEntry).where(GameEntry.game_id == game.id)).all())
+            settled_at = game.played_at.date() if game.played_at else date.today()
+            for e in entries:
+                if e.net_change is not None:
+                    session.add(
+                        Settlement(
+                            player_id=e.player_id,
+                            game_id=game.id,
+                            settled_at=settled_at,
+                            amount=e.net_change,
+                            note="Paid up",
+                        )
+                    )
+                    created += 1
+        session.commit()
+    return RedirectResponse(url="/games?flash=All+games+marked+as+paid+up.+Mark+individual+games+as+unpaid+to+add+nets+back+to+outstanding.", status_code=302)
+
+
 # ---- Delete game (confirm + do) ----
 @router.get("/{game_id}/delete", response_class=HTMLResponse)
 async def game_delete_confirm(request: Request, game_id: str):
@@ -898,7 +930,7 @@ async def game_delete_post(request: Request, game_id: str):
 
 @router.post("/{game_id}/mark-not-paid-up", response_class=HTMLResponse)
 async def game_mark_not_paid_up_post(request: Request, game_id: str):
-    """Remove settlements linked to this game; those balances become outstanding again."""
+    """Remove settlements for this game (linked by game_id or legacy match). outstanding = lifetime_net - expenses - settled_net; removing a settlement reduces settled_net, so each player's outstanding increases by that settlement amount = their net for the game."""
     if not require_admin(request):
         return _redirect_login()
     redir = check_payment_unlocked_redirect(request, next_url=f"/games/{game_id}")
@@ -908,13 +940,13 @@ async def game_mark_not_paid_up_post(request: Request, game_id: str):
         game = session.get(Game, game_id)
         if not game:
             return RedirectResponse(url="/games", status_code=302)
-        to_delete = settlements_for_game(session, game_id)
+        to_delete = settlements_to_remove_for_game(session, game_id)
         if not to_delete:
             return RedirectResponse(url="/games?flash=Game+already+unpaid+(no+payments+to+remove).", status_code=302)
         for s in to_delete:
             session.delete(s)
         session.commit()
-    return RedirectResponse(url="/games?flash=Game+marked+as+unpaid.+Balances+added+back+to+outstanding.", status_code=302)
+    return RedirectResponse(url="/games?flash=Game+marked+as+unpaid.+Net+amounts+added+back+to+each+player%27s+outstanding.", status_code=302)
 
 
 @router.post("/{game_id}/mark-paid-up", response_class=HTMLResponse)
@@ -929,7 +961,7 @@ async def game_mark_paid_up_post(request: Request, game_id: str):
         game = session.get(Game, game_id)
         if not game:
             return RedirectResponse(url="/games", status_code=302)
-        if settlements_for_game(session, game_id):
+        if settlements_to_remove_for_game(session, game_id):
             return RedirectResponse(url="/games?flash=Game+already+marked+as+paid+up.", status_code=302)
         entries = list(session.exec(select(GameEntry).where(GameEntry.game_id == game_id)).all())
         if not entries:
@@ -978,7 +1010,7 @@ async def game_edit_page(request: Request, game_id: str):
         sum_net = sum(e.net_change for e in entries)
         balanced = abs(sum_net) <= BALANCE_EPSILON
         has_settlements = has_any_settlements(session)
-        paid_up = len(settlements_for_game(session, game_id)) > 0
+        paid_up = len(settlements_to_remove_for_game(session, game_id)) > 0
     return templates.TemplateResponse(
         "game_review.html",
         {
