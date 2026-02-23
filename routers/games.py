@@ -930,7 +930,7 @@ async def game_delete_post(request: Request, game_id: str):
 
 @router.post("/{game_id}/mark-not-paid-up", response_class=HTMLResponse)
 async def game_mark_not_paid_up_post(request: Request, game_id: str):
-    """Remove settlements for this game (linked by game_id or legacy match). outstanding = lifetime_net - expenses - settled_net; removing a settlement reduces settled_net, so each player's outstanding increases by that settlement amount = their net for the game."""
+    """Remove settlements for this game (linked by game_id or legacy match). Outstanding is only unpaid games + expenses; so this game becomes unpaid and each player's outstanding gains that game's net."""
     if not require_admin(request):
         return _redirect_login()
     redir = check_payment_unlocked_redirect(request, next_url=f"/games/{game_id}")

@@ -18,11 +18,10 @@ def settlements_for_game(session: Session, game_id: str) -> list[Settlement]:
 
 def settlements_to_remove_for_game(session: Session, game_id: str) -> list[Settlement]:
     """
-    All settlements that represent this game's payouts, so removing them adds each player's net_change back to outstanding.
+    All settlements that represent this game's payouts. When we remove them and mark the game unpaid,
+    outstanding uses net from unpaid games only, so this game's nets are added back to each player's outstanding.
     - First: settlements with game_id = game_id (created by Mark as paid / Paid up at save).
     - If none: legacy settlements (game_id is None) that match this game by date and (player_id, amount) per entry.
-    Outstanding = lifetime_net - expense_total - settled_net; deleting a settlement reduces settled_net, so outstanding
-    increases by that amount — i.e. that player's net for the game is added back to outstanding.
     """
     linked = settlements_for_game(session, game_id)
     if linked:
@@ -79,9 +78,22 @@ def lifetime_net(session: Session, player_id: str) -> Decimal:
     return Decimal(str(r))
 
 
-def settled_net(session: Session, player_id: str) -> Decimal:
+def get_paid_up_game_ids(session: Session) -> set[str]:
+    """Game IDs that are marked paid up (have linked or legacy settlements). Unpaid games are the rest."""
+    all_games = list(session.exec(select(Game)).all())
+    return {g.id for g in all_games if settlements_to_remove_for_game(session, g.id)}
+
+
+def net_from_unpaid_games(session: Session, player_id: str, paid_up_game_ids: Optional[set[str]] = None) -> Decimal:
+    """Sum of net_change for this player in games that are NOT paid up. If all games paid up, returns 0."""
+    if paid_up_game_ids is None:
+        paid_up_game_ids = get_paid_up_game_ids(session)
+    if not paid_up_game_ids:
+        return lifetime_net(session, player_id)
     r = session.exec(
-        select(func.coalesce(func.sum(Settlement.amount), 0)).where(Settlement.player_id == player_id)
+        select(func.coalesce(func.sum(GameEntry.net_change), 0))
+        .where(GameEntry.player_id == player_id)
+        .where(col(GameEntry.game_id).notin(paid_up_game_ids))
     ).one()
     return Decimal(str(r))
 
@@ -96,9 +108,15 @@ def expense_total(session: Session, player_id: str) -> Decimal:
     return Decimal(str(r))
 
 
-def outstanding(session: Session, player_id: str) -> Decimal:
-    """Lifetime net from games − expenses (charges) − settlements. Positive = organizer owes player; negative = player owes organizer. Game stats use only lifetime_net from games."""
-    return lifetime_net(session, player_id) - expense_total(session, player_id) - settled_net(session, player_id)
+def outstanding(session: Session, player_id: str, paid_up_game_ids: Optional[set[str]] = None) -> Decimal:
+    """
+    Only from games and expenses: (sum of net from unpaid games) − expenses.
+    Paid-up games contribute 0; marking a game unpaid adds that game's nets to players.
+    Positive = organizer owes player; negative = player owes organizer.
+    No link to settlements/recorded payments — only game paid-up state and manual expenses.
+    """
+    net = net_from_unpaid_games(session, player_id, paid_up_game_ids)
+    return net - expense_total(session, player_id)
 
 
 def get_expense_groups_for_finances(session: Session) -> list[dict[str, Any]]:
