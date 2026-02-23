@@ -93,7 +93,7 @@ def net_from_unpaid_games(session: Session, player_id: str, paid_up_game_ids: Op
     r = session.exec(
         select(func.coalesce(func.sum(GameEntry.net_change), 0))
         .where(GameEntry.player_id == player_id)
-        .where(col(GameEntry.game_id).notin(paid_up_game_ids))
+        .where(GameEntry.game_id.not_in(paid_up_game_ids))
     ).one()
     return Decimal(str(r))
 
