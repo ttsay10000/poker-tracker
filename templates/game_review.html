@@ -16,6 +16,7 @@
 <p class="badge badge-info">Data below was extracted from your screenshot or notes. Please confirm and map each row to a player.</p>
 {% endif %}
 <p class="muted" style="margin-bottom:0.5rem;">Map each row to a player, or <a href="/players/new" target="_blank" rel="noopener">add a new player</a> then click <strong>Refresh player list</strong> below. When done, click <strong>Continue to Confirm</strong> to see the final summary before saving.</p>
+<p class="muted" style="margin-bottom:0.5rem; font-size:0.875rem;">Multiple rows for the same player are supported: each row is saved and all amounts (buy-in, cashout, net) are added together for that player in this game.</p>
 {% if errors %}
 <ul class="error">
   {% for e in errors %}

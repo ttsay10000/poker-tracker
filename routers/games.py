@@ -709,6 +709,7 @@ async def save_post(request: Request, add_another: str = ""):
                     )
                     session.add(game)
                     session.flush()
+                    # One GameEntry per row; same player can have multiple rows — all are stored and summed for that player
                     for r in g["rows"]:
                         if not r["player_id"] or r["net_change"] is None:
                             continue
@@ -802,6 +803,7 @@ async def save_post(request: Request, add_another: str = ""):
             )
             session.add(game)
             session.flush()
+            # One GameEntry per row; same player can have multiple rows — all are stored and summed for that player
             for r in data["rows"]:
                 if not r["player_id"] or r["net_change"] is None:
                     continue

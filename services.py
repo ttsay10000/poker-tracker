@@ -283,9 +283,11 @@ def chart_data(session: Session, player_ids: list[str], date_from: Optional[date
         .where(GameEntry.player_id.in_(player_ids) if player_ids else True)
     ).all()
 
+    # Sum net_change per (game, player) so multiple entries for same player in one game add together
     by_game_player: dict[tuple[str, str], Decimal] = {}
     for e in entries:
-        by_game_player[(e.game_id, e.player_id)] = e.net_change
+        key = (e.game_id, e.player_id)
+        by_game_player[key] = by_game_player.get(key, Decimal(0)) + (e.net_change or Decimal(0))
 
     players_in_scope = player_ids or [p.id for p in get_active_players(session)]
     # Cumulative: for each player, for each game in order, add that game's net_change to running total
