@@ -16,9 +16,21 @@ def _signed_dollars(value):
     return sign + "${:,.2f}".format(abs(n))
 
 
+def _abs_dollars(value):
+    """Format number as $X,XXX.XX (magnitude only). None -> —."""
+    if value is None:
+        return "—"
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    return "${:,.2f}".format(abs(n))
+
+
 def get_templates():
     t = Jinja2Templates(directory=str(BASE_DIR / "templates"))
     t.env.filters["signed_dollars"] = _signed_dollars
+    t.env.filters["abs_dollars"] = _abs_dollars
     return t
 
 

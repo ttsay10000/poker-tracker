@@ -62,14 +62,14 @@
     <div class="superlative-item">
       <span class="superlative-label">Most consistent</span>
       <span class="superlative-value">{{ superlatives.most_consistent.player.name }}</span>
-      <span class="superlative-sub">{% if superlatives.most_consistent.avg_per_game is not none %}{{ superlatives.most_consistent.avg_per_game | signed_dollars }}/game{% else %}—{% endif %}</span>
+      <span class="superlative-sub">σ {{ superlatives.most_consistent.net_stddev | abs_dollars }} typical swing ({{ superlatives.most_consistent.games_played }} games)</span>
     </div>
     {% endif %}
     {% if superlatives.most_inconsistent %}
     <div class="superlative-item">
       <span class="superlative-label">Most inconsistent</span>
       <span class="superlative-value">{{ superlatives.most_inconsistent.player.name }}</span>
-      <span class="superlative-sub">{% if superlatives.most_inconsistent.avg_per_game is not none %}{{ superlatives.most_inconsistent.avg_per_game | signed_dollars }}/game{% else %}—{% endif %}</span>
+      <span class="superlative-sub">σ {{ superlatives.most_inconsistent.net_stddev | abs_dollars }} typical swing ({{ superlatives.most_inconsistent.games_played }} games)</span>
     </div>
     {% endif %}
   </div>
@@ -84,6 +84,7 @@
       <th class="sortable-th" data-sort="lifetime_net" data-type="num">Total net <span class="sort-icon"></span></th>
       <th class="sortable-th" data-sort="games_played" data-type="num">Games played <span class="sort-icon"></span></th>
       <th class="sortable-th" data-sort="avg_per_game" data-type="num">Avg/game <span class="sort-icon"></span></th>
+      <th class="sortable-th" data-sort="net_stddev" data-type="num">Swing (σ) <span class="sort-icon"></span></th>
       <th class="sortable-th" data-sort="outstanding" data-type="num">Outstanding <span class="sort-icon"></span></th>
       <th>Status</th>
       <th>Actions</th>
@@ -91,7 +92,7 @@
   </thead>
   <tbody>
     {% for r in rows %}
-    <tr data-player="{{ r.player.name }}" data-lifetime-net="{{ r.lifetime_net }}" data-games-played="{{ r.games_played }}" data-avg-per-game="{{ r.avg_per_game if r.avg_per_game is not none else '' }}" data-outstanding="{{ r.outstanding }}">
+    <tr data-player="{{ r.player.name }}" data-lifetime-net="{{ r.lifetime_net }}" data-games-played="{{ r.games_played }}" data-avg-per-game="{{ r.avg_per_game if r.avg_per_game is not none else '' }}" data-net-stddev="{{ r.net_stddev if r.net_stddev is not none else '' }}" data-outstanding="{{ r.outstanding }}">
       <td>
         {{ r.player.name }}
         {% if r.player.harper_crew %}
@@ -101,6 +102,7 @@
       <td class="{% if r.lifetime_net > 0 %}positive{% elif r.lifetime_net < 0 %}negative{% endif %}">{{ r.lifetime_net | signed_dollars }}</td>
       <td>{{ r.games_played }}</td>
       <td class="{% if r.avg_per_game is not none and r.avg_per_game > 0 %}positive{% elif r.avg_per_game is not none and r.avg_per_game < 0 %}negative{% endif %}">{{ r.avg_per_game | signed_dollars }}</td>
+      <td>{% if r.net_stddev is not none %}{{ r.net_stddev | abs_dollars }}{% else %}—{% endif %}</td>
       <td class="{% if r.outstanding > 0 %}positive{% elif r.outstanding < 0 %}negative{% endif %}">{{ r.outstanding | signed_dollars }}</td>
       <td>
         {% if r.outstanding > 0 %}
