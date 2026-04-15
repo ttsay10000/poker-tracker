@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
 from fastapi import Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlmodel import Session, select
 
@@ -98,6 +99,17 @@ def _file_size(path) -> int:
 
 def _format_mb(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
+def _write_upload_bytes(path, body: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(body)
+
+
+def _load_active_players():
+    with Session(engine) as session:
+        return get_active_players(session)
 
 
 def _extraction_limit_error(paths: list, screenshot_grouping: str) -> Optional[str]:
@@ -319,9 +331,7 @@ async def new_game_post(request: Request):
             if len(body) > MAX_UPLOAD_SIZE_BYTES:
                 upload_size_error = True
                 continue
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "wb") as f:
-                f.write(body)
+            await run_in_threadpool(_write_upload_bytes, path, body)
         except OSError as e:
             logger.warning("Add game: could not save upload %s: %s", original_filename, e)
             upload_save_error = True
@@ -337,8 +347,7 @@ async def new_game_post(request: Request):
 
     # Load players first so we can pass them to the LLM for player matching and use them when resolving suggestions
     try:
-        with Session(engine) as session:
-            players = get_active_players(session)
+        players = await run_in_threadpool(_load_active_players)
     except Exception as e:
         logger.exception("Add game: database error loading players: %s", e)
         return templates.TemplateResponse(
@@ -396,7 +405,8 @@ async def new_game_post(request: Request):
             rows = [_blank_review_row()]
             result = None
             try:
-                result = extract_game(
+                result = await run_in_threadpool(
+                    extract_game,
                     notes=notes,
                     image_paths=None,
                     image_display_names=None,
@@ -433,7 +443,8 @@ async def new_game_post(request: Request):
             rows = [_blank_review_row()]
             result = None
             try:
-                result = extract_game(
+                result = await run_in_threadpool(
+                    extract_game,
                     notes=notes or None,
                     image_paths=saved_paths,
                     image_display_names=saved_original_filenames,
@@ -471,7 +482,8 @@ async def new_game_post(request: Request):
                 display_name = saved_original_filenames[idx] if idx < len(saved_original_filenames) else None
                 result = None
                 try:
-                    result = extract_game(
+                    result = await run_in_threadpool(
+                        extract_game,
                         image_paths=[path],
                         image_display_names=[display_name] if display_name else None,
                         player_names=player_names,
@@ -498,7 +510,8 @@ async def new_game_post(request: Request):
             rows = [_blank_review_row()]
             result = None
             try:
-                result = extract_game(
+                result = await run_in_threadpool(
+                    extract_game,
                     notes=notes or None,
                     image_paths=saved_paths or None,
                     image_display_names=saved_original_filenames if saved_paths else None,
