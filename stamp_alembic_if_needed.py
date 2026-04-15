@@ -9,15 +9,14 @@ from pathlib import Path
 # Project root
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import reflection
+from sqlalchemy import create_engine, inspect, text
 
 from config import DATABASE_URL
 
 
 def main() -> None:
     engine = create_engine(DATABASE_URL)
-    inspector = reflection.Inspector.from_engine(engine)
+    inspector = inspect(engine)
     tables = inspector.get_table_names()
 
     has_player = "player" in tables

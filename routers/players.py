@@ -12,7 +12,7 @@ from auth import require_admin
 from config import BASE_DIR, UPLOADS_DIR, MAX_UPLOAD_SIZE_BYTES
 from database import engine
 from templating import templates
-from models import GameEntry, Player, Settlement
+from models import Expense, GameEntry, Player, Settlement
 from services import get_active_players, get_player_by_id, normalize_name, outstanding
 from stats_services import (
     chart_data_single_player,
@@ -240,13 +240,16 @@ async def player_deactivate_merge(request: Request, player_id: str):
         target = get_player_by_id(session, target_player_id)
         if not player or not target or not target.is_active:
             return RedirectResponse(url="/dashboard", status_code=302)
-        # Reassign all game entries and settlements to target
+        # Reassign all game entries, settlements, and expenses to target
         for entry in session.exec(select(GameEntry).where(GameEntry.player_id == player_id)).all():
             entry.player_id = target_player_id
             session.add(entry)
         for settlement in session.exec(select(Settlement).where(Settlement.player_id == player_id)).all():
             settlement.player_id = target_player_id
             session.add(settlement)
+        for expense in session.exec(select(Expense).where(Expense.player_id == player_id)).all():
+            expense.player_id = target_player_id
+            session.add(expense)
         player.is_active = False
         session.add(player)
         session.commit()
@@ -261,11 +264,13 @@ async def player_deactivate_delete(request: Request, player_id: str):
         player = get_player_by_id(session, player_id)
         if not player:
             return RedirectResponse(url="/dashboard", status_code=302)
-        # Delete game entries and settlements first (FK), then player
+        # Delete dependent rows first, then player.
         for entry in session.exec(select(GameEntry).where(GameEntry.player_id == player_id)).all():
             session.delete(entry)
         for settlement in session.exec(select(Settlement).where(Settlement.player_id == player_id)).all():
             session.delete(settlement)
+        for expense in session.exec(select(Expense).where(Expense.player_id == player_id)).all():
+            session.delete(expense)
         session.delete(player)
         session.commit()
     return RedirectResponse(url="/dashboard?flash=Player+and+all+game+data+deleted", status_code=302)
