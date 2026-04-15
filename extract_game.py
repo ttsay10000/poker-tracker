@@ -2,13 +2,23 @@
 import json
 import base64
 import logging
+import os
 from pathlib import Path
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
-from config import OPENAI_API_KEY
+from config import (
+    MAX_EXTRACT_IMAGE_BYTES,
+    MAX_EXTRACT_IMAGE_COUNT,
+    MAX_EXTRACT_TOTAL_BYTES,
+    OPENAI_API_KEY,
+    OPENAI_REQUEST_TIMEOUT_SECONDS,
+)
 
 logger = logging.getLogger(__name__)
+
+# No game-count or storage limits: extraction runs whenever notes or screenshots are provided.
+# Form limits: max 50 files, 10 MB per file (see routers/games.py and config.py).
 
 _EXTRACT_PROMPT_BASE = """Extract poker game results into a single JSON object with two fields:
 
@@ -128,6 +138,13 @@ def _parse_response(text: str) -> Dict[str, Any]:
     return {"rows": rows, "suggested_played_at": suggested_played_at}
 
 
+def _image_size(path: Path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
 def extract_game(
     notes: Optional[str] = None,
     image_paths: Optional[List[Path]] = None,
@@ -143,15 +160,44 @@ def extract_game(
     the user's original filename/title (e.g. "IMG_2025-02-15.jpg") instead of the saved UUID filename.
     """
     empty_result: Dict[str, Any] = {"rows": [], "suggested_played_at": None}
-    if not OPENAI_API_KEY:
+    # Prefer env at call time so updated keys (e.g. after redeploy) are used without restart
+    api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or OPENAI_API_KEY or ""
+    if not api_key:
+        logger.info("OpenAI extraction skipped: OPENAI_API_KEY not set (check env or .env)")
         return empty_result
     notes = (notes or "").strip()
     image_paths = image_paths or []
     image_display_names = image_display_names or []
     if not notes and not image_paths:
+        logger.debug("OpenAI extraction skipped: no notes and no image_paths")
         return empty_result
     valid_paths = [p for p in image_paths if p and getattr(p, "is_file", lambda: False)() and p.is_file()]
     if not notes and not valid_paths:
+        logger.warning(
+            "OpenAI extraction skipped: no notes and no valid image files (got %s paths; files may be missing or not saved)",
+            len(image_paths),
+        )
+        return empty_result
+    if len(valid_paths) > MAX_EXTRACT_IMAGE_COUNT:
+        logger.warning(
+            "OpenAI extraction skipped: too many images (%d > %d)",
+            len(valid_paths),
+            MAX_EXTRACT_IMAGE_COUNT,
+        )
+        return empty_result
+    if any(_image_size(path) > MAX_EXTRACT_IMAGE_BYTES for path in valid_paths):
+        logger.warning(
+            "OpenAI extraction skipped: one or more images exceed %d bytes",
+            MAX_EXTRACT_IMAGE_BYTES,
+        )
+        return empty_result
+    total_image_bytes = sum(_image_size(path) for path in valid_paths)
+    if total_image_bytes > MAX_EXTRACT_TOTAL_BYTES:
+        logger.warning(
+            "OpenAI extraction skipped: total image payload too large (%d > %d bytes)",
+            total_image_bytes,
+            MAX_EXTRACT_TOTAL_BYTES,
+        )
         return empty_result
 
     prompt_suffix = _player_hints_prompt(player_names or [], alias_map or {})
@@ -188,16 +234,24 @@ def extract_game(
 
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        logger.info(
+            "OpenAI extraction: calling API (notes=%s, image_count=%d, total_image_bytes=%d)",
+            bool(notes),
+            len(valid_paths),
+            total_image_bytes,
+        )
+        client = OpenAI(api_key=api_key, timeout=OPENAI_REQUEST_TIMEOUT_SECONDS)
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": content}],
             max_tokens=4096,
         )
         text = (response.choices[0].message.content or "").strip()
-        return _parse_response(text)
+        parsed = _parse_response(text)
+        logger.info("OpenAI extraction: got %d rows", len(parsed.get("rows") or []))
+        return parsed
     except Exception as e:
-        logger.warning("Game extraction failed (notes or images): %s", e, exc_info=True)
+        logger.warning("OpenAI extraction failed: %s", e, exc_info=True)
         return empty_result
 
 

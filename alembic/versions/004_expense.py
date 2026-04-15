@@ -16,7 +16,15 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _has_table(table_name: str) -> bool:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    return table_name in inspector.get_table_names()
+
+
 def upgrade() -> None:
+    if _has_table("expense"):
+        return
     op.create_table(
         "expense",
         sa.Column("id", sa.String(), nullable=False),
@@ -30,4 +38,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("expense")
+    if _has_table("expense"):
+        op.drop_table("expense")

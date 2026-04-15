@@ -1,8 +1,9 @@
 """Games: list, manual new, review, confirm, save; edit saved game."""
 import logging
+import os
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -11,7 +12,18 @@ from sqlmodel import Session, select
 from fastapi import APIRouter
 
 from auth import require_admin, check_payment_unlocked_redirect
-from config import BASE_DIR, BALANCE_EPSILON, UPLOADS_DIR, OPENAI_API_KEY, MAX_UPLOAD_SIZE_BYTES, PLAYER_ALIASES
+from config import (
+    BASE_DIR,
+    BALANCE_EPSILON,
+    MAX_EXTRACT_IMAGE_BYTES,
+    MAX_EXTRACT_IMAGE_COUNT,
+    MAX_EXTRACT_TOTAL_BYTES,
+    MAX_UPLOAD_FILES,
+    MAX_UPLOAD_SIZE_BYTES,
+    OPENAI_API_KEY,
+    PLAYER_ALIASES,
+    UPLOADS_DIR,
+)
 from database import engine
 from extract_game import extract_game
 from game_forms import parse_game_form, parse_multi_game_form
@@ -63,6 +75,58 @@ def _to_decimal(v: Any) -> Decimal:
         return Decimal(str(v).strip().replace(",", ""))
     except (InvalidOperation, ValueError):
         return Decimal(0)
+
+
+def _blank_review_row() -> dict[str, Any]:
+    return {
+        "player_id": "",
+        "raw_name": "",
+        "buyin": "",
+        "cashout": "",
+        "final_stack": "",
+        "net_change": "",
+        "errors": [],
+    }
+
+
+def _file_size(path) -> int:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return 0
+
+
+def _format_mb(size_bytes: int) -> str:
+    return f"{size_bytes / (1024 * 1024):.1f} MB"
+
+
+def _extraction_limit_error(paths: list, screenshot_grouping: str) -> Optional[str]:
+    if not paths:
+        return None
+    if len(paths) > MAX_EXTRACT_IMAGE_COUNT:
+        if screenshot_grouping == "one_game":
+            return (
+                f"AI extraction is limited to {MAX_EXTRACT_IMAGE_COUNT} screenshots per upload "
+                f"to keep the server stable. Please split this game into smaller batches or enter it manually."
+            )
+        return (
+            f"AI extraction is limited to {MAX_EXTRACT_IMAGE_COUNT} screenshots per upload "
+            f"to keep the server stable. Please upload fewer screenshots at a time."
+        )
+    if any(_file_size(path) > MAX_EXTRACT_IMAGE_BYTES for path in paths):
+        return (
+            f"One or more screenshots are too large for AI extraction "
+            f"(max {_format_mb(MAX_EXTRACT_IMAGE_BYTES)} each). Try cropping or compressing the image, "
+            "or fill in the game manually below."
+        )
+    total_bytes = sum(_file_size(path) for path in paths)
+    if total_bytes > MAX_EXTRACT_TOTAL_BYTES:
+        return (
+            f"These screenshots total {_format_mb(total_bytes)}, which is above the "
+            f"{_format_mb(MAX_EXTRACT_TOTAL_BYTES)} AI extraction limit. Please split them into smaller uploads "
+            "or fill in the game manually below."
+        )
+    return None
 
 
 def _rows_for_template(rows: list) -> list:
@@ -206,7 +270,7 @@ async def new_game_post(request: Request):
         # Allow 10 MB per file and many files (multiple screenshots = multiple games)
         form = await request.form(
             max_part_size=MAX_UPLOAD_SIZE_BYTES,
-            max_files=50,
+            max_files=MAX_UPLOAD_FILES,
         )
     except Exception as e:
         logger.exception("Add game: invalid form data: %s", e)
@@ -320,11 +384,16 @@ async def new_game_post(request: Request):
     player_names = [p.name for p in players]
     games_for_review: list[dict] = []
     screenshot_grouping = (form.get("screenshot_grouping") or "").strip() or "per_screenshot"
+    # Use env at request time so updated OPENAI_API_KEY is picked up after redeploy
+    openai_key_set = bool((os.getenv("OPENAI_API_KEY") or "").strip() or OPENAI_API_KEY)
+    extraction_limit_error = _extraction_limit_error(saved_paths, screenshot_grouping)
+    should_run_extraction = openai_key_set and (notes or saved_paths) and not extraction_limit_error
 
-    if OPENAI_API_KEY and (notes or saved_paths):
+    if should_run_extraction:
+        logger.info("Add game: running OpenAI extraction (notes=%s, saved_paths=%d)", bool(notes), len(saved_paths))
         # Notes only (no screenshots): always one game from notes, regardless of "one game per screenshot" setting
         if notes and not saved_paths:
-            rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+            rows = [_blank_review_row()]
             result = None
             try:
                 result = extract_game(
@@ -361,7 +430,7 @@ async def new_game_post(request: Request):
             # All screenshots = one game: single extraction with all images
             all_urls = [f"/uploads/{p.name}" for p in saved_paths]
             source_image_path_or_url_combined = ",".join(all_urls)
-            rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+            rows = [_blank_review_row()]
             result = None
             try:
                 result = extract_game(
@@ -414,7 +483,7 @@ async def new_game_post(request: Request):
                     logger.warning("Add game: extraction failed for screenshot %s: %s", name, e, exc_info=True)
                     rows = []
                 if not rows:
-                    rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+                    rows = [_blank_review_row()]
                 sum_net = sum((_row_net(r) for r in rows), Decimal(0))
                 game_date_iso = (result.get("suggested_played_at") if result else "") or played_at_str or ""
                 games_for_review.append({
@@ -426,7 +495,7 @@ async def new_game_post(request: Request):
                     "played_at_iso": game_date_iso,
                 })
         else:
-            rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
+            rows = [_blank_review_row()]
             result = None
             try:
                 result = extract_game(
@@ -460,21 +529,43 @@ async def new_game_post(request: Request):
                 "played_at_iso": game_date_iso,
             })
     else:
-        # No API key, or no notes and no files: show empty game
-        rows = [{"player_id": "", "raw_name": "", "buyin": "", "cashout": "", "final_stack": "", "net_change": "", "errors": []}]
-        games_for_review.append({
-            "source_image_path_or_url": source_image_path_or_url or "",
-            "rows": _rows_for_template(rows),
-            "sum_net": Decimal(0),
-            "balanced": True,
-            "extracted_from_screenshot": False,
-            "played_at_iso": played_at_str or "",
-        })
+        # No API key, extraction disabled, or no notes/files: fall back to manual review
+        if len(saved_paths) > 1 and screenshot_grouping == "one_game":
+            all_urls = [f"/uploads/{p.name}" for p in saved_paths]
+            games_for_review.append({
+                "source_image_path_or_url": ",".join(all_urls),
+                "rows": _rows_for_template([_blank_review_row()]),
+                "sum_net": Decimal(0),
+                "balanced": True,
+                "extracted_from_screenshot": False,
+                "played_at_iso": played_at_str or "",
+            })
+        elif len(saved_paths) > 1:
+            for path in saved_paths:
+                games_for_review.append({
+                    "source_image_path_or_url": f"/uploads/{path.name}",
+                    "rows": _rows_for_template([_blank_review_row()]),
+                    "sum_net": Decimal(0),
+                    "balanced": True,
+                    "extracted_from_screenshot": False,
+                    "played_at_iso": played_at_str or "",
+                })
+        else:
+            games_for_review.append({
+                "source_image_path_or_url": source_image_path_or_url or "",
+                "rows": _rows_for_template([_blank_review_row()]),
+                "sum_net": Decimal(0),
+                "balanced": True,
+                "extracted_from_screenshot": False,
+                "played_at_iso": played_at_str or "",
+            })
 
     errors_list = []
-    if (notes or saved_paths) and not OPENAI_API_KEY:
+    if (notes or saved_paths) and not openai_key_set:
         errors_list.append("OPENAI_API_KEY is not set. AI extraction from notes/screenshots is disabled. Set it in your environment to use it, or fill in the game manually below.")
-    if (notes or saved_paths) and OPENAI_API_KEY and games_for_review:
+    if extraction_limit_error:
+        errors_list.append(extraction_limit_error)
+    if (notes or saved_paths) and should_run_extraction and games_for_review:
         last_game = games_for_review[-1]
         rows_for_last = last_game.get("rows") or []
         has_any_filled = any(

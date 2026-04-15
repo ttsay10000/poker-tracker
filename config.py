@@ -53,3 +53,10 @@ PLAYER_ALIASES = {
 
 # Max size per uploaded file (screenshots / player photos); ~10 MB, a bit above typical screenshot size
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024
+MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "6"))
+
+# Keep AI extraction bounded so uploads do not overwhelm the web worker.
+MAX_EXTRACT_IMAGE_COUNT = int(os.getenv("MAX_EXTRACT_IMAGE_COUNT", "4"))
+MAX_EXTRACT_IMAGE_BYTES = int(os.getenv("MAX_EXTRACT_IMAGE_BYTES", str(6 * 1024 * 1024)))
+MAX_EXTRACT_TOTAL_BYTES = int(os.getenv("MAX_EXTRACT_TOTAL_BYTES", str(20 * 1024 * 1024)))
+OPENAI_REQUEST_TIMEOUT_SECONDS = int(os.getenv("OPENAI_REQUEST_TIMEOUT_SECONDS", "45"))
