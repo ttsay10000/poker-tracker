@@ -1,5 +1,6 @@
 """Aggregates and business logic."""
 import math
+from collections import defaultdict
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
@@ -80,8 +81,32 @@ def lifetime_net(session: Session, player_id: str) -> Decimal:
 
 def get_paid_up_game_ids(session: Session) -> set[str]:
     """Game IDs that are marked paid up (have linked or legacy settlements). Unpaid games are the rest."""
-    all_games = list(session.exec(select(Game)).all())
-    return {g.id for g in all_games if settlements_to_remove_for_game(session, g.id)}
+    linked_ids = {
+        game_id
+        for game_id in session.exec(
+            select(Settlement.game_id)
+            .where(Settlement.game_id.is_not(None))
+            .distinct()
+        ).all()
+        if game_id
+    }
+    legacy_ids = {
+        game_id
+        for game_id in session.exec(
+            select(GameEntry.game_id)
+            .join(Game, Game.id == GameEntry.game_id)
+            .join(
+                Settlement,
+                (Settlement.game_id.is_(None))
+                & (Settlement.player_id == GameEntry.player_id)
+                & (Settlement.amount == GameEntry.net_change)
+                & (Settlement.settled_at == func.date(Game.played_at)),
+            )
+            .distinct()
+        ).all()
+        if game_id
+    }
+    return linked_ids | legacy_ids
 
 
 def net_from_unpaid_games(session: Session, player_id: str, paid_up_game_ids: Optional[set[str]] = None) -> Decimal:
@@ -222,15 +247,19 @@ def get_deleted_expense_groups_for_finances(session: Session) -> list[dict[str, 
 
 
 def games_played_count(session: Session, player_id: str) -> int:
-    return session.exec(select(func.count(GameEntry.id)).where(GameEntry.player_id == player_id)).one() or 0
+    return session.exec(
+        select(func.count(func.distinct(GameEntry.game_id))).where(GameEntry.player_id == player_id)
+    ).one() or 0
 
 
 def per_game_nets(session: Session, player_id: str) -> list[Decimal]:
     """Return list of net_change per game for this player (one value per game played)."""
     rows = session.exec(
-        select(GameEntry.net_change).where(GameEntry.player_id == player_id)
+        select(func.coalesce(func.sum(GameEntry.net_change), 0))
+        .where(GameEntry.player_id == player_id)
+        .group_by(GameEntry.game_id)
     ).all()
-    return list(rows) if rows else []
+    return [Decimal(str(row)) for row in rows] if rows else []
 
 
 def per_game_net_stddev(session: Session, player_id: str) -> Optional[float]:
@@ -243,6 +272,88 @@ def per_game_net_stddev(session: Session, player_id: str) -> Optional[float]:
     mean = sum(vals) / n
     variance = sum((x - mean) ** 2 for x in vals) / n
     return math.sqrt(variance)
+
+
+def lifetime_nets_map(session: Session, player_ids: list[str]) -> dict[str, Decimal]:
+    """Batch sum of lifetime net_change by player."""
+    if not player_ids:
+        return {}
+    rows = session.exec(
+        select(GameEntry.player_id, func.coalesce(func.sum(GameEntry.net_change), 0))
+        .where(GameEntry.player_id.in_(player_ids))
+        .group_by(GameEntry.player_id)
+    ).all()
+    return {player_id: Decimal(str(total)) for player_id, total in rows}
+
+
+def games_played_count_map(session: Session, player_ids: list[str]) -> dict[str, int]:
+    """Batch distinct-games-played count by player."""
+    if not player_ids:
+        return {}
+    rows = session.exec(
+        select(GameEntry.player_id, func.count(func.distinct(GameEntry.game_id)))
+        .where(GameEntry.player_id.in_(player_ids))
+        .group_by(GameEntry.player_id)
+    ).all()
+    return {player_id: int(count or 0) for player_id, count in rows}
+
+
+def per_game_net_stddev_map(session: Session, player_ids: list[str]) -> dict[str, Optional[float]]:
+    """Batch standard deviation of per-game net for multiple players."""
+    if not player_ids:
+        return {}
+    rows = session.exec(
+        select(GameEntry.player_id, GameEntry.game_id, func.coalesce(func.sum(GameEntry.net_change), 0))
+        .where(GameEntry.player_id.in_(player_ids))
+        .group_by(GameEntry.player_id, GameEntry.game_id)
+    ).all()
+    nets_by_player: dict[str, list[float]] = defaultdict(list)
+    for player_id, _game_id, total in rows:
+        nets_by_player[player_id].append(float(total))
+    out: dict[str, Optional[float]] = {}
+    for player_id in player_ids:
+        vals = nets_by_player.get(player_id, [])
+        if len(vals) < 2:
+            out[player_id] = None
+            continue
+        mean = sum(vals) / len(vals)
+        variance = sum((x - mean) ** 2 for x in vals) / len(vals)
+        out[player_id] = math.sqrt(variance)
+    return out
+
+
+def outstanding_map(
+    session: Session,
+    player_ids: list[str],
+    paid_up_game_ids: Optional[set[str]] = None,
+) -> dict[str, Decimal]:
+    """Batch outstanding values for players."""
+    if not player_ids:
+        return {}
+    if paid_up_game_ids is None:
+        paid_up_game_ids = get_paid_up_game_ids(session)
+
+    net_query = (
+        select(GameEntry.player_id, func.coalesce(func.sum(GameEntry.net_change), 0))
+        .where(GameEntry.player_id.in_(player_ids))
+    )
+    if paid_up_game_ids:
+        net_query = net_query.where(GameEntry.game_id.not_in(paid_up_game_ids))
+    net_rows = session.exec(net_query.group_by(GameEntry.player_id)).all()
+    nets = {player_id: Decimal(str(total)) for player_id, total in net_rows}
+
+    expense_rows = session.exec(
+        select(Expense.player_id, func.coalesce(func.sum(Expense.amount), 0))
+        .where(Expense.player_id.in_(player_ids))
+        .where(Expense.deleted_at.is_(None))
+        .group_by(Expense.player_id)
+    ).all()
+    expenses = {player_id: Decimal(str(total)) for player_id, total in expense_rows}
+
+    return {
+        player_id: nets.get(player_id, Decimal(0)) - expenses.get(player_id, Decimal(0))
+        for player_id in player_ids
+    }
 
 
 # ---- Game date range (for default chart window) ----

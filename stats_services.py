@@ -42,6 +42,33 @@ def _entries_for_player(session: Session, player_id: str, game_ids: list[str]) -
     )
 
 
+def _aggregated_entries_for_player(session: Session, player_id: str, game_ids: list[str]) -> dict[str, dict]:
+    """Per-game aggregates for one player across the given games."""
+    if not game_ids:
+        return {}
+    rows = session.exec(
+        select(
+            GameEntry.game_id,
+            func.coalesce(func.sum(GameEntry.net_change), 0),
+            func.sum(GameEntry.buyin),
+            func.sum(GameEntry.cashout),
+            func.sum(GameEntry.final_stack),
+        )
+        .where(GameEntry.game_id.in_(game_ids))
+        .where(GameEntry.player_id == player_id)
+        .group_by(GameEntry.game_id)
+    ).all()
+    return {
+        game_id: {
+            "net_change": Decimal(str(net_change)),
+            "buyin": Decimal(str(buyin)) if buyin is not None else None,
+            "cashout": Decimal(str(cashout)) if cashout is not None else None,
+            "final_stack": Decimal(str(final_stack)) if final_stack is not None else None,
+        }
+        for game_id, net_change, buyin, cashout, final_stack in rows
+    }
+
+
 def _player_ids_in_games(session: Session, game_ids: list[str]) -> list[str]:
     """Distinct player_ids that have at least one entry in these games."""
     if not game_ids:
@@ -82,9 +109,8 @@ def player_core_stats(
             "avg_when_losing": None,
         }
     game_ids = [g.id for g in games]
-    entries = _entries_for_player(session, player_id, game_ids)
-    by_game = {e.game_id: e for e in entries}
-    nets = [by_game[g.id].net_change for g in games]
+    by_game = _aggregated_entries_for_player(session, player_id, game_ids)
+    nets = [by_game[g.id]["net_change"] for g in games if g.id in by_game]
     wins = sum(1 for n in nets if n > 0)
     losses = sum(1 for n in nets if n < 0)
     pushes = sum(1 for n in nets if n == 0)
@@ -98,17 +124,18 @@ def player_core_stats(
     worst_net = min(nets) if nets else None
     stddev_net = Decimal(str(stdev(nets_float))) if len(nets_float) > 1 else None
 
-    buyins = [e.buyin for e in entries if e.buyin is not None and e.buyin > 0]
-    cashouts = [e.cashout for e in entries if e.cashout is not None]
-    final_stacks = [e.final_stack for e in entries if e.final_stack is not None]
+    per_game = list(by_game.values())
+    buyins = [e["buyin"] for e in per_game if e["buyin"] is not None and e["buyin"] > 0]
+    cashouts = [e["cashout"] for e in per_game if e["cashout"] is not None]
+    final_stacks = [e["final_stack"] for e in per_game if e["final_stack"] is not None]
     avg_buyin = (sum(buyins) / len(buyins)) if buyins else None
     avg_cashout = (sum(cashouts) / len(cashouts)) if cashouts else None
     avg_final_stack = (sum(final_stacks) / len(final_stacks)) if final_stacks else None
 
     roi_list = []
-    for e in entries:
-        if e.buyin is not None and e.buyin > 0 and e.net_change is not None:
-            roi_list.append(float(e.net_change / e.buyin))
+    for e in per_game:
+        if e["buyin"] is not None and e["buyin"] > 0 and e["net_change"] is not None:
+            roi_list.append(float(e["net_change"] / e["buyin"]))
     avg_roi = Decimal(str(sum(roi_list) / len(roi_list))) if roi_list else None
 
     winning_nets = [n for n in nets if n > 0]
@@ -154,10 +181,9 @@ def player_streaks(
             "longest_loss_streak": 0,
         }
     game_ids = [g.id for g in games]
-    entries = _entries_for_player(session, player_id, game_ids)
-    by_game = {e.game_id: e for e in entries}
+    by_game = _aggregated_entries_for_player(session, player_id, game_ids)
     # nets in chronological order
-    nets = [by_game[g.id].net_change for g in games]
+    nets = [by_game[g.id]["net_change"] for g in games if g.id in by_game]
     current_type = None
     current_len = 0
     longest_win = 0
@@ -210,13 +236,12 @@ def chart_data_single_player(
     if not games:
         return {"labels": [], "data": []}
     game_ids = [g.id for g in games]
-    entries = _entries_for_player(session, player_id, game_ids)
-    by_game = {e.game_id: e.net_change for e in entries}
+    by_game = _aggregated_entries_for_player(session, player_id, game_ids)
     labels = [g.played_at.strftime("%Y-%m-%d") for g in games]
     running = Decimal(0)
     data = []
     for g in games:
-        running += by_game.get(g.id, Decimal(0))
+        running += by_game.get(g.id, {}).get("net_change", Decimal(0))
         data.append(float(running))
     return {"labels": labels, "data": data}
 
@@ -237,12 +262,11 @@ def recent_games_for_player(
     if not games:
         return []
     game_ids = [g.id for g in games]
-    entries = _entries_for_player(session, player_id, game_ids)
-    by_game = {e.game_id: e for e in entries}
+    by_game = _aggregated_entries_for_player(session, player_id, game_ids)
     # Lineup size per game
     counts = {}
     for gid in game_ids:
-        c = session.exec(select(func.count(GameEntry.id)).where(GameEntry.game_id == gid)).one()
+        c = session.exec(select(func.count(func.distinct(GameEntry.player_id))).where(GameEntry.game_id == gid)).one()
         counts[gid] = c or 0
     out = []
     for g in games:
@@ -252,10 +276,10 @@ def recent_games_for_player(
         out.append({
             "game_id": g.id,
             "played_at": g.played_at,
-            "net_change": e.net_change,
-            "buyin": e.buyin,
-            "cashout": e.cashout,
-            "final_stack": e.final_stack,
+            "net_change": e["net_change"],
+            "buyin": e["buyin"],
+            "cashout": e["cashout"],
+            "final_stack": e["final_stack"],
             "lineup_size": counts.get(g.id, 0),
         })
     return out
@@ -271,11 +295,10 @@ def player_activity_log(
     games = _game_query(session, date_from, date_to, player_id)
     games = list(reversed(games))
     game_ids = [g.id for g in games]
-    entries = _entries_for_player(session, player_id, game_ids)
-    by_game = {e.game_id: e for e in entries}
+    by_game = _aggregated_entries_for_player(session, player_id, game_ids)
     counts = {}
     for gid in game_ids:
-        c = session.exec(select(func.count(GameEntry.id)).where(GameEntry.game_id == gid)).one()
+        c = session.exec(select(func.count(func.distinct(GameEntry.player_id))).where(GameEntry.game_id == gid)).one()
         counts[gid] = c or 0
 
     q = select(Expense).where(Expense.player_id == player_id).where(Expense.deleted_at.is_(None)).order_by(Expense.created_at)
@@ -295,9 +318,9 @@ def player_activity_log(
             "sort_at": g.played_at,
             "game_id": g.id,
             "played_at": g.played_at,
-            "net_change": e.net_change,
-            "buyin": e.buyin,
-            "cashout": e.cashout,
+            "net_change": e["net_change"],
+            "buyin": e["buyin"],
+            "cashout": e["cashout"],
             "lineup_size": counts.get(g.id, 0),
         })
     for ex in expenses:
@@ -330,7 +353,12 @@ def lineup_with_x_stats(
     all_entries = list(session.exec(
         select(GameEntry).where(GameEntry.game_id.in_(game_ids))
     ).all())
-    focal_entries_by_game = {e.game_id: e for e in all_entries if e.player_id == focal_id}
+    focal_entries_by_game: dict[str, Decimal] = defaultdict(lambda: Decimal(0))
+    players_by_game: dict[str, set[str]] = defaultdict(set)
+    for entry in all_entries:
+        players_by_game[entry.game_id].add(entry.player_id)
+        if entry.player_id == focal_id:
+            focal_entries_by_game[entry.game_id] += entry.net_change
     other_player_ids = list(dict.fromkeys(e.player_id for e in all_entries if e.player_id != focal_id))
     player_names = {p.id: p.name for p in session.exec(select(Player).where(Player.id.in_(other_player_ids))).all()}
 
@@ -342,11 +370,11 @@ def lineup_with_x_stats(
             if g.id not in focal_entries_by_game:
                 continue
             fe = focal_entries_by_game[g.id]
-            x_in_game = any(e.player_id == x_id for e in all_entries if e.game_id == g.id)
+            x_in_game = x_id in players_by_game.get(g.id, set())
             if x_in_game:
-                games_with_x.append(fe.net_change)
+                games_with_x.append(fe)
             else:
-                games_without_x.append(fe.net_change)
+                games_without_x.append(fe)
         games_with_x_n = len(games_with_x)
         if games_with_x_n < min_sample:
             continue
@@ -567,20 +595,53 @@ def leaderboard_rows(
     min_games: int = 1,
 ) -> list[dict]:
     """One row per player: total_net, games_played, win_rate, avg_net_per_game, avg_buyin, outstanding (from services)."""
-    from services import outstanding
+    from services import get_paid_up_game_ids, outstanding_map
     players = get_players_for_stats(session, include_inactive)
+    if not players:
+        return []
+
+    games = _game_query(session, date_from, date_to)
+    game_ids = [g.id for g in games]
+    player_ids = [p.id for p in players]
+    by_player_game: dict[str, dict[str, dict[str, Optional[Decimal]]]] = defaultdict(dict)
+    if game_ids:
+        aggregated = session.exec(
+            select(
+                GameEntry.player_id,
+                GameEntry.game_id,
+                func.coalesce(func.sum(GameEntry.net_change), 0),
+                func.sum(GameEntry.buyin),
+            )
+            .where(GameEntry.game_id.in_(game_ids))
+            .where(GameEntry.player_id.in_(player_ids))
+            .group_by(GameEntry.player_id, GameEntry.game_id)
+        ).all()
+        for player_id, game_id, total_net, total_buyin in aggregated:
+            by_player_game[player_id][game_id] = {
+                "net_change": Decimal(str(total_net)),
+                "buyin": Decimal(str(total_buyin)) if total_buyin is not None else None,
+            }
+
+    paid_up_game_ids = get_paid_up_game_ids(session)
+    outstanding_values = outstanding_map(session, player_ids, paid_up_game_ids=paid_up_game_ids)
     rows = []
     for p in players:
-        core = player_core_stats(session, p.id, date_from, date_to)
-        if core["games_played"] < min_games:
+        games_for_player = by_player_game.get(p.id, {})
+        if len(games_for_player) < min_games:
             continue
+        nets = [row["net_change"] for row in games_for_player.values()]
+        total_net = sum(nets, Decimal(0))
+        avg_net = (total_net / len(nets)) if nets else None
+        win_rate = (sum(1 for n in nets if n > 0) / len(nets)) if nets else None
+        buyins = [row["buyin"] for row in games_for_player.values() if row["buyin"] is not None and row["buyin"] > 0]
+        avg_buyin = (sum(buyins) / len(buyins)) if buyins else None
         rows.append({
             "player": p,
-            "total_net": core["total_net"],
-            "games_played": core["games_played"],
-            "win_rate": core["win_rate"],
-            "avg_net_per_game": core["avg_net_per_game"],
-            "avg_buyin": core["avg_buyin"],
-            "outstanding": outstanding(session, p.id),
+            "total_net": total_net,
+            "games_played": len(games_for_player),
+            "win_rate": win_rate,
+            "avg_net_per_game": avg_net,
+            "avg_buyin": avg_buyin,
+            "outstanding": outstanding_values.get(p.id, Decimal(0)),
         })
     return rows

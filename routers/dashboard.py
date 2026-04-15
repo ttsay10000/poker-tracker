@@ -13,13 +13,13 @@ from templating import templates
 from models import Player
 from services import (
     chart_data,
-    games_played_count,
+    games_played_count_map,
     get_active_players,
     get_game_date_range,
     get_paid_up_game_ids,
-    lifetime_net,
-    outstanding,
-    per_game_net_stddev,
+    lifetime_nets_map,
+    outstanding_map,
+    per_game_net_stddev_map,
 )
 
 router = APIRouter()
@@ -79,14 +79,19 @@ async def dashboard(
         chart_json = chart_data(session, chart_player_ids, d_from, d_to)
 
         # Table: all active players with totals (not filtered by date for table)
+        player_ids = [p.id for p in all_players]
         paid_up_ids = get_paid_up_game_ids(session)
+        lifetime_nets = lifetime_nets_map(session, player_ids)
+        outstanding_values = outstanding_map(session, player_ids, paid_up_game_ids=paid_up_ids)
+        games_played = games_played_count_map(session, player_ids)
+        stddevs = per_game_net_stddev_map(session, player_ids)
         rows = []
         for p in all_players:
-            life = lifetime_net(session, p.id)
-            out = outstanding(session, p.id, paid_up_game_ids=paid_up_ids)
-            count = games_played_count(session, p.id)
+            life = lifetime_nets.get(p.id, 0)
+            out = outstanding_values.get(p.id, 0)
+            count = games_played.get(p.id, 0)
             avg = (life / count) if count else None
-            stddev = per_game_net_stddev(session, p.id)
+            stddev = stddevs.get(p.id)
             rows.append({
                 "player": p,
                 "lifetime_net": life,
