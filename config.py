@@ -6,6 +6,7 @@ Env document (set in .env or environment):
   ADMIN_PASSWORD     Required. Password for protected routes.
   SECRET_KEY         Optional. Session/signing secret; defaults to ADMIN_PASSWORD.
   OPENAI_API_KEY     Optional. For extracting game data from screenshots/notes (Add game).
+  PAYMENT_PASSWORD   Optional. Password for payment/ledger actions; defaults to ADMIN_PASSWORD.
 """
 import os
 from pathlib import Path
@@ -28,8 +29,9 @@ if DATABASE_URL.startswith("postgres://"):
 # Auth
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 SECRET_KEY = os.getenv("SECRET_KEY", ADMIN_PASSWORD or "dev-secret")
-# Password required to record payments / settled up / add charge / mark not paid up (ledger actions)
-PAYMENT_PASSWORD = os.getenv("PAYMENT_PASSWORD", "Snoopy&Me1216")
+# Password required to record payments / settled up / add charge / mark not paid up
+# (ledger actions). Never ship a shared hard-coded fallback.
+PAYMENT_PASSWORD = os.getenv("PAYMENT_PASSWORD") or ADMIN_PASSWORD
 
 # OpenAI (optional): for extracting game data from screenshots
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")

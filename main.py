@@ -17,6 +17,7 @@ from auth import require_admin
 from services import get_active_players
 from models import Player
 from services import normalize_name
+from schema_validation import get_schema_issues
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -47,14 +48,30 @@ def startup():
     # schema is managed solely by Alembic so alembic_version stays in sync.
     if "sqlite" in DATABASE_URL:
         create_db_and_tables()
+    schema_issues = get_schema_issues(engine)
+    if schema_issues:
+        logger.error(
+            "Database schema mismatch detected. Run 'python stamp_alembic_if_needed.py && python -m alembic upgrade head'. Issues: %s",
+            "; ".join(schema_issues),
+        )
 
 
 @app.get("/health")
 async def health():
-    """Simple health check: DB connectivity. Returns 200 if DB is reachable, 500 with detail if not."""
+    """Health check: DB connectivity + required schema columns for current app code."""
     try:
         with Session(engine) as session:
             session.execute(text("SELECT 1")).scalar()
+        schema_issues = get_schema_issues(engine)
+        if schema_issues:
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "detail": "Database schema mismatch",
+                    "issues": schema_issues,
+                },
+                status_code=500,
+            )
         return {"status": "ok"}
     except Exception as e:
         logger.exception("Health check failed")

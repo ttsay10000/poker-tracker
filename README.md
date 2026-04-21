@@ -42,7 +42,7 @@ A small web app to track weekly poker results: add games (manual or screenshot),
 
 4. Create tables (SQLite creates them on startup; for Alembic):
    ```bash
-   alembic upgrade head
+   python -m alembic upgrade head
    ```
 
 5. Run the app:
@@ -60,20 +60,19 @@ A small web app to track weekly poker results: add games (manual or screenshot),
    - No static build step required.
 
 3. **Start**:
-   - Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - Start command: `python stamp_alembic_if_needed.py && python -m alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT`
 
 4. **Environment**:
    - `ADMIN_PASSWORD`: required (admin login).
    - `DATABASE_URL`: from Render PostgreSQL (auto-set if you add a Postgres instance and link it).
    - Optional: `SECRET_KEY` for cookie signing (defaults to `ADMIN_PASSWORD`).
+   - Optional: `PAYMENT_PASSWORD` for ledger/payment actions (defaults to `ADMIN_PASSWORD`).
 
 5. **Persistent disk** (optional): If you use screenshot uploads and want them to survive deploys, add a disk and set `UPLOADS_DIR` to that path (or mount the disk and update `config.py` to use it). Otherwise uploads are stored in the app filesystem and may be lost on redeploy.
 
-6. Run migrations on first deploy (Render shell or a one-off job):
-   ```bash
-   alembic upgrade head
-   ```
-   If you rely on `create_db_and_tables()` on startup, tables are created automatically (no Alembic required for initial deploy).
+6. Migrations must run on every deploy before the app starts.
+   The start command above handles this automatically. If you already created the
+   web service with an older start command, update it in Render and redeploy.
 
 ## Auth
 
